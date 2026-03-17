@@ -1,0 +1,5 @@
+# pycache is diff for everyone
+__pycache__/
+
+# please dont upload environment files
+.env
