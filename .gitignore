@@ -3,3 +3,4 @@ __pycache__/
 
 # please dont upload environment files
 .env
+.vscode
