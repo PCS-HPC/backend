@@ -25,7 +25,20 @@ async def lifespan(app: FastAPI):
     app.ph = PasswordHasher()
 
     app.db.command("ping")
+
     app.db["users"].create_index("email", unique=True)
+
+    app.db["blacklisted_tokens"].create_index(
+        [("expiresAt", 1)],
+        expireAfterSeconds=0
+    )
+
+    app.db["sessions"].create_index("jti", unique=True)
+
+    app.db["sessions"].create_index(
+        [("expiresAt", 1)],
+        expireAfterSeconds=0
+    )
 
     print("MongoDB connected successfully")
 
