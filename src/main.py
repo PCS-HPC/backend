@@ -2,6 +2,9 @@ import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
+
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
@@ -12,8 +15,6 @@ from src.api import api
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    load_dotenv()
-
     mongo_uri = os.getenv("MONGO_URI")
     mongo_db_name = os.getenv("MONGO_DB_NAME", "monhpc")
 
