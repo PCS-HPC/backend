@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI):
     app.db.command("ping")
 
     app.db["users"].create_index("email", unique=True)
+    app.db["users"].create_index("username", unique=True)
 
     app.db["blacklisted_tokens"].create_index(
         [("expiresAt", 1)],
@@ -66,14 +67,3 @@ app.add_middleware(
 )
 
 app.include_router(api.router, prefix="/api")
-
-
-@app.get("/")
-def root():
-    return {"message": "MONHPC backend running"}
-
-
-@app.get("/db-test")
-def db_test():
-    app.db.command("ping")
-    return {"message": "MongoDB Atlas connected successfully"}

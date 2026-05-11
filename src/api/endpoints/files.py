@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -11,11 +12,52 @@ from src.api.endpoints.auth import get_current_user
 
 router = APIRouter()
 
-STORAGE_ROOT = Path(os.getenv("LOCAL_STORAGE_DIR", "storage")).resolve()
+raw_storage_root = os.getenv("LOCAL_STORAGE_DIR", "storage")
+STORAGE_ROOT = Path(os.path.expandvars(os.path.expanduser(raw_storage_root))).resolve()
 
 
-def get_user_storage_dir(user_id: str) -> Path:
-    user_dir = STORAGE_ROOT / "users" / user_id
+def sanitize_username(username: str) -> str:
+    clean_username = username.strip().lower()
+
+    if not clean_username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username cannot be empty",
+        )
+
+    clean_username = re.sub(r"[^a-zA-Z0-9._-]", "_", clean_username)
+
+    if clean_username in {".", ".."}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid username",
+        )
+
+    return clean_username
+
+
+def get_storage_username(current_user: dict) -> str:
+    username = current_user.get("username")
+
+    if username:
+        return sanitize_username(username)
+
+    email = current_user.get("email", "").strip().lower()
+
+    if email.endswith("@student.monash.edu"):
+        return sanitize_username(email.split("@")[0][:8])
+
+    if email.endswith("@monash.edu"):
+        return sanitize_username(email.split("@")[0])
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="User does not have a valid Monash username",
+    )
+
+
+def get_user_storage_dir(username: str) -> Path:
+    user_dir = STORAGE_ROOT / username
     user_dir.mkdir(parents=True, exist_ok=True)
     return user_dir.resolve()
 
@@ -91,8 +133,8 @@ def list_directory(
     path: Optional[str] = Query(default=None, description="Folder path to list"),
     current_user: dict = Depends(get_current_user),
 ):
-    user_id = str(current_user["_id"])
-    user_dir = get_user_storage_dir(user_id)
+    username = get_storage_username(current_user)
+    user_dir = get_user_storage_dir(username)
     target_dir = get_safe_path(user_dir, path)
 
     if not target_dir.exists():
@@ -111,7 +153,6 @@ def list_directory(
 
     for item in sorted(target_dir.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
         stat = item.stat()
-
         relative_path = item.relative_to(user_dir).as_posix()
 
         items.append({
@@ -124,7 +165,7 @@ def list_directory(
 
     return {
         "success": True,
-        "userId": user_id,
+        "username": username,
         "currentPath": target_dir.relative_to(user_dir).as_posix()
         if target_dir != user_dir
         else "",
@@ -137,8 +178,8 @@ def create_folder(
     path: str = Query(..., description="Folder path to create"),
     current_user: dict = Depends(get_current_user),
 ):
-    user_id = str(current_user["_id"])
-    user_dir = get_user_storage_dir(user_id)
+    username = get_storage_username(current_user)
+    user_dir = get_user_storage_dir(username)
     folder_path = get_safe_path(user_dir, path)
 
     if folder_path.exists() and not folder_path.is_dir():
@@ -166,9 +207,8 @@ async def upload_file(
     overwrite: bool = Query(default=False),
     current_user: dict = Depends(get_current_user),
 ):
-    user_id = str(current_user["_id"])
-    user_dir = get_user_storage_dir(user_id)
-
+    username = get_storage_username(current_user)
+    user_dir = get_user_storage_dir(username)
     upload_dir = get_safe_path(user_dir, path)
 
     if upload_dir.exists() and not upload_dir.is_dir():
@@ -188,7 +228,10 @@ async def upload_file(
         )
 
     safe_name = Path(filename).name
-    destination = get_safe_path(user_dir, f"{upload_dir.relative_to(user_dir).as_posix()}/{safe_name}")
+    upload_relative_path = upload_dir.relative_to(user_dir).as_posix()
+
+    destination_path = f"{upload_relative_path}/{safe_name}" if upload_relative_path != "." else safe_name
+    destination = get_safe_path(user_dir, destination_path)
 
     if destination.exists() and not overwrite:
         raise HTTPException(
@@ -225,8 +268,8 @@ def download_file(
     path: str = Query(..., description="File path to download"),
     current_user: dict = Depends(get_current_user),
 ):
-    user_id = str(current_user["_id"])
-    user_dir = get_user_storage_dir(user_id)
+    username = get_storage_username(current_user)
+    user_dir = get_user_storage_dir(username)
     file_path = get_safe_path(user_dir, path)
 
     if not file_path.exists() or not file_path.is_file():
@@ -248,8 +291,8 @@ def delete_item(
     recursive: bool = Query(default=False, description="Required to delete non-empty folders"),
     current_user: dict = Depends(get_current_user),
 ):
-    user_id = str(current_user["_id"])
-    user_dir = get_user_storage_dir(user_id)
+    username = get_storage_username(current_user)
+    user_dir = get_user_storage_dir(username)
     target_path = get_safe_path(user_dir, path)
 
     if not target_path.exists():

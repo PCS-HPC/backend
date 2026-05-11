@@ -29,6 +29,23 @@ def utc_now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def get_monash_username(user: dict) -> str | None:
+    username = user.get("username")
+
+    if username:
+        return username
+
+    email = user.get("email", "").strip().lower()
+
+    if email.endswith("@student.monash.edu"):
+        return email.split("@")[0][:8]
+
+    if email.endswith("@monash.edu"):
+        return email.split("@")[0]
+
+    return None
+
+
 def create_access_token(user: dict):
     secret_key = os.getenv("JWT_SECRET_KEY")
     algorithm = os.getenv("JWT_ALGORITHM", "HS256")
@@ -38,6 +55,7 @@ def create_access_token(user: dict):
         raise RuntimeError("JWT_SECRET_KEY not found. Check your .env file.")
 
     jti = str(uuid.uuid4())
+    username = get_monash_username(user)
 
     # Keep JWT exp timezone-aware because PyJWT expects proper UTC expiry.
     jwt_expire_time = datetime.now(timezone.utc) + timedelta(minutes=expire_minutes)
@@ -45,9 +63,10 @@ def create_access_token(user: dict):
     payload = {
         "sub": str(user["_id"]),
         "email": user["email"],
+        "username": username,
         "role": user.get("role", "student"),
         "jti": jti,
-        "exp": jwt_expire_time
+        "exp": jwt_expire_time,
     }
 
     token = jwt.encode(payload, secret_key, algorithm=algorithm)
@@ -70,13 +89,13 @@ def decode_token(token: str) -> dict:
     except InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token"
+            detail="Invalid or expired token",
         )
 
 
 def get_current_user(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     token = credentials.credentials
     payload = decode_token(token)
@@ -87,30 +106,30 @@ def get_current_user(
     if not jti or not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload"
+            detail="Invalid token payload",
         )
 
     blacklisted_token = request.app.db["blacklisted_tokens"].find_one({
-        "jti": jti
+        "jti": jti,
     })
 
     if blacklisted_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has been logged out"
+            detail="Token has been logged out",
         )
 
     idle_timeout_minutes = int(os.getenv("SESSION_IDLE_TIMEOUT_MINUTES", "30"))
     now = utc_now()
 
     session = request.app.db["sessions"].find_one({
-        "jti": jti
+        "jti": jti,
     })
 
     if not session or session.get("revoked"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired or logged out"
+            detail="Session expired or logged out",
         )
 
     last_activity = session.get("lastActivityAt")
@@ -118,7 +137,7 @@ def get_current_user(
     if not last_activity:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid session"
+            detail="Invalid session",
         )
 
     # Extra safety in case old session documents still contain timezone-aware dates.
@@ -131,14 +150,14 @@ def get_current_user(
             {
                 "$set": {
                     "revoked": True,
-                    "revokedAt": now
+                    "revokedAt": now,
                 }
-            }
+            },
         )
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired due to inactivity"
+            detail="Session expired due to inactivity",
         )
 
     request.app.db["sessions"].update_one(
@@ -146,9 +165,9 @@ def get_current_user(
         {
             "$set": {
                 "lastActivityAt": now,
-                "expiresAt": now + timedelta(minutes=idle_timeout_minutes)
+                "expiresAt": now + timedelta(minutes=idle_timeout_minutes),
             }
-        }
+        },
     )
 
     try:
@@ -156,23 +175,23 @@ def get_current_user(
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid user ID in token"
+            detail="Invalid user ID in token",
         )
 
     user = request.app.db["users"].find_one({
-        "_id": object_user_id
+        "_id": object_user_id,
     })
 
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found"
+            detail="User not found",
         )
 
     if user.get("status") != "active":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is not active"
+            detail="User account is not active",
         )
 
     return user
@@ -182,16 +201,16 @@ def get_current_user(
 def login_user(user_login: UserLogin, request: Request):
     db = request.app.db
 
-    email = user_login.email.lower()
+    email = user_login.email.strip().lower()
 
     user = db["users"].find_one({
-        "email": email
+        "email": email,
     })
 
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
+            detail="Invalid email or password",
         )
 
     try:
@@ -199,7 +218,7 @@ def login_user(user_login: UserLogin, request: Request):
     except (VerifyMismatchError, VerificationError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
+            detail="Invalid email or password",
         )
 
     access_token, jti, token_expire_time = create_access_token(user)
@@ -214,13 +233,15 @@ def login_user(user_login: UserLogin, request: Request):
         "lastActivityAt": now,
         "expiresAt": now + timedelta(minutes=idle_timeout_minutes),
         "tokenExpiresAt": token_expire_time,
-        "revoked": False
+        "revoked": False,
     })
 
     db["users"].update_one(
         {"_id": user["_id"]},
-        {"$set": {"lastLoginAt": now}}
+        {"$set": {"lastLoginAt": now}},
     )
+
+    username = get_monash_username(user)
 
     return {
         "success": True,
@@ -231,16 +252,17 @@ def login_user(user_login: UserLogin, request: Request):
         "user": {
             "id": str(user["_id"]),
             "email": user["email"],
+            "username": username,
             "role": user.get("role", "student"),
-            "status": user.get("status", "active")
-        }
+            "status": user.get("status", "active"),
+        },
     }
 
 
 @router.post("/logout")
 def logout_user(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     token = credentials.credentials
     payload = decode_token(token)
@@ -251,7 +273,7 @@ def logout_user(
     if not jti or not exp:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload"
+            detail="Invalid token payload",
         )
 
     now = utc_now()
@@ -259,7 +281,7 @@ def logout_user(
     request.app.db["blacklisted_tokens"].insert_one({
         "jti": jti,
         "blacklistedAt": now,
-        "expiresAt": datetime.fromtimestamp(exp, tz=timezone.utc).replace(tzinfo=None)
+        "expiresAt": datetime.fromtimestamp(exp, tz=timezone.utc).replace(tzinfo=None),
     })
 
     request.app.db["sessions"].update_one(
@@ -267,22 +289,25 @@ def logout_user(
         {
             "$set": {
                 "revoked": True,
-                "revokedAt": now
+                "revokedAt": now,
             }
-        }
+        },
     )
 
     return {
         "success": True,
-        "message": "Logged out successfully"
+        "message": "Logged out successfully",
     }
 
 
 @router.get("/me")
 def get_me(current_user: dict = Depends(get_current_user)):
+    username = get_monash_username(current_user)
+
     return {
         "id": str(current_user["_id"]),
         "email": current_user["email"],
+        "username": username,
         "role": current_user.get("role", "student"),
-        "status": current_user.get("status", "active")
+        "status": current_user.get("status", "active"),
     }
