@@ -11,7 +11,7 @@ from pymongo import MongoClient
 from argon2 import PasswordHasher
 
 from src.api import api
-
+from src.service import ldap
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -23,6 +23,7 @@ async def lifespan(app: FastAPI):
 
     app.mongo_client = MongoClient(mongo_uri)
     app.db = app.mongo_client[mongo_db_name]
+    app.ldap = ldap.get_ldap_connection()
     app.ph = PasswordHasher()
 
     app.db.command("ping")
@@ -47,6 +48,7 @@ async def lifespan(app: FastAPI):
     yield
 
     app.mongo_client.close()
+    app.ldap.unbind()
 
 
 origins = [

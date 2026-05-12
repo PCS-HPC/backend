@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Request, HTTPException, status
 from pydantic import BaseModel, EmailStr
+from ldap3.core.exceptions import LDAPEntryAlreadyExistsResult, LDAPNoSuchObjectResult
+from ...service import ldap
+import os
 
+LDAP_ACTIVATED = os.getenv("LDAP_ACTIVATED")
 
 router = APIRouter()
-
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -87,6 +90,16 @@ def create_user(user: UserCreate, request: Request):
     }
 
     result = db["users"].insert_one(new_user)
+
+    # create openldap user
+    # this should run the background but eh too lazy :P
+    payload = ldap.User(
+        username=new_user['username'],
+        password=user.password
+    )
+
+    if (LDAP_ACTIVATED):
+        ldap.create_user_with_group(payload, request.app.ldap)
 
     return {
         "success": True,
