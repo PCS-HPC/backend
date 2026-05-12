@@ -13,8 +13,6 @@ LDAP_ADMIN_USER = os.getenv("LDAP_ADMIN_USER")
 LDAP_ADMIN_PASSWORD = os.getenv("LDAP_ADMIN_PASSWORD")
 LDAP_BASE_DN = os.getenv("LDAP_BASE_DN")
 POOL_DN = f'cn=next-free-id,{LDAP_BASE_DN}'
-STARTING_UID = 10000
-STARTING_GID = 10000
 
 class User(BaseModel):
     username: str
