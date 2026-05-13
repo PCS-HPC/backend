@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
     yield
 
     app.mongo_client.close()
-    if LDAP_ACTIVATED
+    if LDAP_ACTIVATED:
         app.ldap.unbind()
 
 
