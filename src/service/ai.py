@@ -185,8 +185,3 @@ def summarize_context(previous_summary: str, context: list[dict]):
     response = requests.post("", summary_prompt)
 
     return response.get("final_response", "")
-
-def get_max_token() -> int:
-    # TODO: replace with Derek's API endpoint when available
-    response = requests.get("")
-    pass

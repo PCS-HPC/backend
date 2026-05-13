@@ -58,7 +58,7 @@ def continue_conversation(
     new_msg = body.message
 
     conversation = db.conversations.find_one({"_id": convo_id})
-    if not conversation:
+    if not conversation or conversation['owner'] != current_user['_id']:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
 
     # Rebuild context from dialogue history
@@ -82,3 +82,29 @@ def continue_conversation(
     )
 
     return {"response": result.get("final_response")}
+
+@router.get("/convo/{convo_id}/token", status_code=status.HTTP_200_OK)
+def get_token_left(
+    convo_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    db = request.app.db
+
+    conversation = db.conversations.find_one({"_id": convo_id})
+    if not conversation or conversation['owner'] != current_user['_id']:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
+    # Rebuild context from dialogue history
+    context = ai.get_conversation_history(convo_id, db)
+
+    # Check token count and summarize if needed
+    summary = conversation.get("summary", "")
+    max_tokens = ai.get_max_token()
+    total_tokens = ai.estimate_token(ai.build_prompt(summary, context, ""))
+
+    return {
+        "max_tokens": max_tokens,
+        "total_tokens": total_tokens,
+        "percentage": total_tokens / max_tokens
+    }
