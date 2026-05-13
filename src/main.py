@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+LDAP_ACTIVATED = os.getenv("LDAP_ACTIVATED") == 'true'
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
@@ -23,7 +25,8 @@ async def lifespan(app: FastAPI):
 
     app.mongo_client = MongoClient(mongo_uri)
     app.db = app.mongo_client[mongo_db_name]
-    app.ldap = ldap.get_ldap_connection()
+    if (LDAP_ACTIVATED)
+        app.ldap = ldap.get_ldap_connection()
     app.ph = PasswordHasher()
 
     app.db.command("ping")
@@ -48,7 +51,8 @@ async def lifespan(app: FastAPI):
     yield
 
     app.mongo_client.close()
-    app.ldap.unbind()
+    if (LDAP_ACTIVATED)
+        app.ldap.unbind()
 
 
 origins = [

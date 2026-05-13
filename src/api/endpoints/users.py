@@ -4,7 +4,7 @@ from ldap3.core.exceptions import LDAPEntryAlreadyExistsResult
 from ...service import ldap
 import os
 
-LDAP_ACTIVATED = os.getenv("LDAP_ACTIVATED")
+LDAP_ACTIVATED = os.getenv("LDAP_ACTIVATED") == 'true'
 
 router = APIRouter()
 
