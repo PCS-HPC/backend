@@ -48,7 +48,7 @@ def parse_monash_email(email: str) -> dict:
         return {
             "email": clean_email,
             "username": local_part,
-            "role": "staff",
+            "role": "admin",
         }
 
     raise HTTPException(
