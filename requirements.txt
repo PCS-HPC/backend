@@ -2,7 +2,9 @@ annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.12.1
 argon2-cffi==23.1.0
+argon2-cffi-bindings==25.1.0
 certifi==2026.2.25
+cffi==2.0.0
 charset-normalizer==3.4.6
 click==8.3.1
 dnspython==2.8.0
@@ -17,9 +19,13 @@ httptools==0.7.1
 httpx==0.28.1
 idna==3.11
 Jinja2==3.1.6
+ldap3==2.9.1
 markdown-it-py==4.0.0
 MarkupSafe==3.0.3
 mdurl==0.1.2
+passlib==1.7.4
+pyasn1==0.6.3
+pycparser==3.0
 pydantic==2.12.5
 pydantic-extra-types==2.11.1
 pydantic-settings==2.13.1
@@ -42,7 +48,6 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 urllib3==2.6.3
 uvicorn==0.42.0
-# uvloop==0.22.1
+uvloop==0.22.1
 watchfiles==1.1.1
 websockets==16.0
-

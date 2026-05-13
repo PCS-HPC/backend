@@ -1,6 +1,10 @@
 from fastapi import APIRouter, Request, HTTPException, status
 from pydantic import BaseModel, EmailStr
+from ldap3.core.exceptions import LDAPEntryAlreadyExistsResult
+from ...service import ldap
+import os
 
+LDAP_ACTIVATED = os.getenv("LDAP_ACTIVATED")
 
 router = APIRouter()
 
@@ -90,6 +94,33 @@ def create_user(user: UserCreate, request: Request):
         "creditBalance": DEFAULT_CREDIT_BALANCE,
     }
 
+    # create openldap user
+    # this should run the background but eh too lazy :P
+    payload = ldap.User(
+        username=new_user['username'],
+        password=user.password
+    )
+
+    if (LDAP_ACTIVATED):
+        try:
+            ret_val = ldap.create_user_with_group(payload, request.app.ldap)
+            if (ret_val['result']):
+                print(ret_val['description'])
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Something horrible went wrong",
+                )
+        except LDAPEntryAlreadyExistsResult:
+            print("Thats weird, maybe someone (hopefully admin) created the user already, just log and let it through")
+            print("oh shit we dont have a log file, hehe")
+        except Exception as e:
+            print(e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Something horrible went wrong",
+            )
+
+    # only add the user in the db if ldap success
     result = db["users"].insert_one(new_user)
 
     return {
