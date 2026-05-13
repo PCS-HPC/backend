@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
 
     app.mongo_client = MongoClient(mongo_uri)
     app.db = app.mongo_client[mongo_db_name]
-    if (LDAP_ACTIVATED)
+    if (LDAP_ACTIVATED):
         app.ldap = ldap.get_ldap_connection()
     app.ph = PasswordHasher()
 
@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
     yield
 
     app.mongo_client.close()
-    if (LDAP_ACTIVATED)
+    if (LDAP_ACTIVATED):
         app.ldap.unbind()
 
 
