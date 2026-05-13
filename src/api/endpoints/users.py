@@ -5,6 +5,9 @@ from pydantic import BaseModel, EmailStr
 router = APIRouter()
 
 
+DEFAULT_CREDIT_BALANCE = 5000
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
@@ -57,7 +60,7 @@ def create_user(user: UserCreate, request: Request):
     parsed_email = parse_monash_email(user.email)
 
     existing_user = db["users"].find_one({
-        "email": parsed_email["email"]
+        "email": parsed_email["email"],
     })
 
     if existing_user:
@@ -67,7 +70,7 @@ def create_user(user: UserCreate, request: Request):
         )
 
     existing_username = db["users"].find_one({
-        "username": parsed_email["username"]
+        "username": parsed_email["username"],
     })
 
     if existing_username:
@@ -84,6 +87,7 @@ def create_user(user: UserCreate, request: Request):
         "passwordHash": hashed_password,
         "role": parsed_email["role"],
         "status": "active",
+        "creditBalance": DEFAULT_CREDIT_BALANCE,
     }
 
     result = db["users"].insert_one(new_user)
@@ -95,4 +99,5 @@ def create_user(user: UserCreate, request: Request):
         "username": new_user["username"],
         "role": new_user["role"],
         "status": new_user["status"],
+        "creditBalance": new_user["creditBalance"],
     }

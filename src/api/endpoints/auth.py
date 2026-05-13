@@ -46,6 +46,16 @@ def get_monash_username(user: dict) -> str | None:
     return None
 
 
+def get_credit_balance(user: dict) -> int:
+    if "creditBalance" not in user:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="User account is missing credit balance",
+        )
+
+    return int(user["creditBalance"])
+
+
 def create_access_token(user: dict):
     secret_key = os.getenv("JWT_SECRET_KEY")
     algorithm = os.getenv("JWT_ALGORITHM", "HS256")
@@ -255,6 +265,7 @@ def login_user(user_login: UserLogin, request: Request):
             "username": username,
             "role": user.get("role", "student"),
             "status": user.get("status", "active"),
+            "creditBalance": get_credit_balance(user),
         },
     }
 
@@ -310,4 +321,5 @@ def get_me(current_user: dict = Depends(get_current_user)):
         "username": username,
         "role": current_user.get("role", "student"),
         "status": current_user.get("status", "active"),
+        "creditBalance": get_credit_balance(current_user),
     }
