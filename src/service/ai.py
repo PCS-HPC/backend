@@ -45,6 +45,7 @@ def get_conversation_history(convo_id, db, after_id=None):
     dialogues = list(
         db.dialogues.find(query).sort("timestamp", 1)
     )
+
     return dialogues
 
 def save_convo(
@@ -70,7 +71,7 @@ def save_convo(
 
     return conversation_id
 
-def build_prompt(summary, context, new_message):
+def build_prompt(summary, context, new_message, files: list[dict] | None = None):
     history_block = ""
     history_lines = [f"summarised={summary}\n"] if summary and len(summary) else []
 
@@ -86,6 +87,10 @@ def build_prompt(summary, context, new_message):
         + "\n</previous_prompts_and_response>\n\n"
     )
 
+    if files:
+        file_refs = "\n".join(f'{f["name"]}: {f["path"]}' for f in files)
+        new_message = f"{new_message}\n\nFiles added can be located in:\n{file_refs}"
+
     return (
         f"{history_block}"
         f"<current_prompt>\n{new_message}\n</current_prompt>"
@@ -96,11 +101,13 @@ def get_chat_completion(
     context, 
     new_message, 
     user_id, 
+    user_name,
     user_role = 'user',
     db = None,
     conversation_id: str = None,
     title: str = None,
     summary: str = "",
+    files: list[dict] | None = None,  # <-- add this
 ):
     """
         Sends a new message to the NemoClaw LangGraph API, incorporating prior
@@ -129,29 +136,30 @@ def get_chat_completion(
             requests.HTTPError: On non-2xx responses.
             RuntimeError:       If the prompt is flagged as unsafe.
     """
-    prompt = build_prompt(summary, context, new_message)
+    prompt = build_prompt(summary, context, new_message, files=files)
+    print(prompt)
 
-    if db:
+    if db is not None:
         conversation_id = save_convo(
             db, content=new_message, sent_by="user", user_id=user_id,
             conversation_id=conversation_id, title=title,
         )
 
     payload = {
-        "user_id": user_id,
+        "user_id": user_name,
         "user_role": user_role,
         "prompt": prompt,
     }
 
-    response = requests.post(AI_CLUSTER_URL, json=payload, timeout=60)
+    response = requests.post(f"{AI_CLUSTER_URL}/api/v1/chat", json=payload, timeout=60)
     response.raise_for_status()
 
     result = response.json()
 
     if not result.get("is_safe"):
-        return result
+        return result, conversation_id
 
-    if db:
+    if db is not None:
         save_convo(
             db, content=result.get("final_response", ""), sent_by="ai", user_id=user_id,
             conversation_id=conversation_id, title=title,

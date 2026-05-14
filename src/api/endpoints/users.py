@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, HTTPException, status, Depends
-from auth import get_current_user
+from .auth import get_current_user
 from pydantic import BaseModel, EmailStr
 from ldap3.core.exceptions import LDAPEntryAlreadyExistsResult
 from ...service import ldap

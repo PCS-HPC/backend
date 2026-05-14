@@ -1,7 +1,7 @@
 # derek's ai integration
-from fastapi import APIRouter, Request, HTTPException, status, Depends
-from auth import get_current_user
-from ...service import ai
+from fastapi import UploadFile, APIRouter, Request, HTTPException, status, Depends, Form, File
+from .auth import get_current_user
+from ...service import ai, file
 from pydantic import BaseModel
 
 class ChatMessage(BaseModel):
@@ -15,7 +15,11 @@ def get_convo_list(
     current_user: dict = Depends(get_current_user)
 ):
     user_id = current_user["_id"]
-    return request.db.conversations.find({"owner": user_id})
+    list_o_convo = list(request.app.db.conversations.find({"owner": user_id}))
+    for convo in list_o_convo:
+        convo["_id"] = str(convo["_id"]) # need to convert or fastapi cries...
+        convo.pop("owner") # dont need you
+    return list_o_convo
 
 @router.delete("/convo/{convo_id}")
 def delete_convo_list(
@@ -33,33 +37,32 @@ def delete_convo_list(
     db.dialogues.delete_many({"conversation_id": convo_id})
     return {"message": "Success"}
 
-
 # new conversation
 @router.post("/convo", status_code=status.HTTP_201_CREATED)
-def create_chat(
-    body: ChatMessage,
+async def create_chat(
     request: Request,
+    message: str = Form(...),
+    files: list[UploadFile] = File(default=[]),
     current_user: dict = Depends(get_current_user)
 ):
     db = request.app.db
     user_id = current_user["_id"]
-    message = body.message
+    user_name = current_user["username"]
+
+    uploaded_files = await file.upload_files_to_storage(files, user_name) if files else []
 
     result, convo_id = ai.get_chat_completion(
         context=[],
         new_message=message,
         user_id=user_id,
+        user_name=user_name,
         db=db,
         conversation_id=None,
-        title=message[:60] + ("..." if len(message) > 60 else "")
+        title=message[:60] + ("..." if len(message) > 60 else ""),
+        files=uploaded_files or None,
     )
 
-    return {
-        "response": result.get("final_response"),
-        "blocked": not result.get("is_safe"),
-        "requires_clarification": result.get("requires_clarification"),
-        "convo_id": convo_id,
-    }
+    return result | { "convo_id": convo_id }
 
 @router.get("/convo/{convo_id}", status_code=status.HTTP_200_OK)
 def get_chat(
@@ -69,28 +72,35 @@ def get_chat(
 ):
     db = request.app.db
 
-    conversation = db.conversations.find_one({"_id": convo_id})
-    if not conversation or conversation['owner'] != current_user['_id']:
+    convo = db.conversations.find_one({"_id": convo_id})
+    if not convo or convo['owner'] != current_user['_id']:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
 
+    convo["_id"] = str(convo["_id"])
+    convo.pop("owner")
     dialogues = ai.get_conversation_history(convo_id, db)
-
-    return {"conversation": conversation, "dialogues": dialogues}
+    for dialogue in dialogues:
+        dialogue["_id"] = str(dialogue["_id"]) # need to convert or fastapi cries...
+        dialogue.pop("conversation_id")
+    return {"conversation": convo, "dialogues": dialogues}
 
 @router.post("/convo/{convo_id}", status_code=status.HTTP_201_CREATED)
-def continue_conversation(
+async def continue_conversation(
     convo_id: str, 
-    body: ChatMessage,
     request: Request, 
+    message: str = Form(...),
+    files: list[UploadFile] = File(default=[]),
     current_user: dict = Depends(get_current_user)
 ):
     db = request.app.db
     user_id = current_user["_id"]
-    new_msg = body.message
+    user_name = current_user["username"]
 
     conversation = db.conversations.find_one({"_id": convo_id})
     if not conversation or conversation['owner'] != user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
+    uploaded_files = await file.batch_upload(files, user_name) if files else []
 
     # Check token count and summarize if needed
     summary = conversation.get("summary", "")
@@ -100,7 +110,7 @@ def continue_conversation(
     context = ai.get_conversation_history(convo_id, db, after_id=cutoff_id)
 
     max_tokens = ai.get_max_token()
-    total_tokens = ai.estimate_token(ai.build_prompt(summary, context, new_msg))
+    total_tokens = ai.estimate_token(ai.build_prompt(summary, context, message))
     if max_tokens and total_tokens > max_tokens:
         summary, cutoff_id  = ai.summarize_context(summary, context)
         db.conversations.update_one(
@@ -111,19 +121,16 @@ def continue_conversation(
 
     result, _ = ai.get_chat_completion(
         context=context,
-        new_message=new_msg,
+        new_message=message,
         user_id=user_id,
+        user_name=user_name,
         db=db,
         conversation_id=convo_id,
-        summary=summary
+        summary=summary,
+        files=uploaded_files
     )
 
-    return {
-        "response": result.get("final_response"),
-        "blocked": not result.get("is_safe"),
-        "requires_clarification": result.get("requires_clarification"),
-        "convo_id": convo_id,
-    }
+    return result
 
 @router.get("/convo/{convo_id}/context", status_code=status.HTTP_200_OK)
 def get_context_left(
