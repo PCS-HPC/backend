@@ -3,30 +3,49 @@
 import requests
 import os
 import uuid
-import datetime
+from datetime import datetime
 
 AI_CLUSTER_URL = os.getenv('AI_CLUSTER_URL')
 
 def get_max_token():
-    # TODO: pending derek API
-    return requests.get()
+    # Derek Feedback:
+    # For Gemma 4 we got 128k token context length. whenever user's previous prompt's convo bloats up to 90k tokens 
+    # (check using my tokenizer API), you just call summarise and it will reduce down to around 64k token context 
+    # length and put in
+    return 90000
 
 def estimate_token(total_context):
-    # TODO: pending derek API
-    # in an ideal world, i literally just dump the context in and call it a day
-    return requests.post(total_context)
+    """
+    Count tokens in a conversation block using the Gemma 4 vLLM tokenizer.
 
-def get_conversation_history(convo_id, db):
-    dialogues = list(db.dialogues.find({"conversation_id": convo_id}).sort("timestamp", 1))
-    context = []
-    for i in range(0, len(dialogues) - 1, 2):
-        user_turn = dialogues[i]
-        ai_turn = dialogues[i + 1] if i + 1 < len(dialogues) else None
-        context.append({
-            "prompt": user_turn.get("content", ""),
-            "response": ai_turn.get("content", "") if ai_turn else "",
-        })
-    return context
+    Args:
+        total_context (str): The <previous_prompts_and_response>...</previous_prompts_and_response> block.
+
+    Returns:
+        int: Token count for the conversation block.
+
+    Raises:
+        requests.HTTPError: On non-2xx responses.
+    """
+    response = requests.post(
+        f"{AI_CLUSTER_URL}/api/v1/context/token-count",
+        json={"conversation_block": total_context},
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()["token_count"]
+
+def get_conversation_history(convo_id, db, after_id=None):
+    query = {"conversation_id": convo_id}
+    if after_id:
+        # only fetch dialogues after the summarization cutoff
+        # i sure do hope _id is monotonically increasing 
+        query["_id"] = {"$gt": after_id}  
+
+    dialogues = list(
+        db.dialogues.find(query).sort("timestamp", 1)
+    )
+    return dialogues
 
 def save_convo(
     db,
@@ -53,16 +72,19 @@ def save_convo(
 
 def build_prompt(summary, context, new_message):
     history_block = ""
-    if context:
-        history_lines = [f"summarised={summary}\n"] if summary and len(summary) else []
-        for turn in context:
-            history_lines.append(f"prompt={turn.get('prompt', '')}")
-            history_lines.append(f"response={turn.get('response', '')}")
-        history_block = (
-            "<previous_prompts_and_response>\n"
-            + "\n".join(history_lines)
-            + "\n</previous_prompts_and_response>\n\n"
-        )
+    history_lines = [f"summarised={summary}\n"] if summary and len(summary) else []
+
+    for dialouge in context:
+        if (dialouge['sent_by'] == 'user'):
+            history_lines.append(f"prompt={dialouge['content']}")
+        elif (dialouge['sent_by'] == 'ai'):
+            history_lines.append(f"response={dialouge['content']}")
+
+    history_block = (
+        "<previous_prompts_and_response>\n"
+        + "\n".join(history_lines)
+        + "\n</previous_prompts_and_response>\n\n"
+    )
 
     return (
         f"{history_block}"
@@ -127,10 +149,7 @@ def get_chat_completion(
     result = response.json()
 
     if not result.get("is_safe"):
-        hazard = result.get("safety_hazard", "unknown")
-        raise RuntimeError(
-            f"Prompt blocked by Llama Guard. Safety category: {hazard}"
-        )
+        return result
 
     if db:
         save_convo(
@@ -138,7 +157,7 @@ def get_chat_completion(
             conversation_id=conversation_id, title=title,
         )
 
-    return result
+    return result, conversation_id
 
 def summarize_context(previous_summary: str, context: list[dict]):
     """
@@ -156,32 +175,17 @@ def summarize_context(previous_summary: str, context: list[dict]):
         A plain-text summary of the conversation so far.
     """
     if not context:
-        return previous_summary
+        return previous_summary, None
 
-    # Build a transcript of the recent turns
-    transcript_lines = []
-    for i, turn in enumerate(context, start=1):
-        transcript_lines.append(f"[Turn {i}]")
-        transcript_lines.append(f"User: {turn.get('prompt', '')}")
-        transcript_lines.append(f"Assistant: {turn.get('response', '')}")
+    transcript = build_prompt(previous_summary, context, "")
 
-    transcript = "\n".join(transcript_lines)
-
-    prior_summary_block = (
-        f"Previous summary:\n{previous_summary}\n\n"
-        if previous_summary else ""
+    response = requests.post(
+        f"{AI_CLUSTER_URL}/api/v1/context/summarize",
+        json={"conversation_block": transcript},
+        timeout=60,
     )
+    response.raise_for_status()
 
-    summary_prompt = (
-        "The following is a conversation history between a user and an HPC assistant. "
-        "Please summarize it concisely in a few sentences, preserving the key facts "
-        "(job IDs, file paths, errors, decisions made) so it can be used as context "
-        "for future requests.\n\n"
-        f"{prior_summary_block}"
-        f"Recent turns:\n{transcript}"
-    )
-
-    # TODO: pending derek API
-    response = requests.post("", summary_prompt)
-
-    return response.get("final_response", "")
+    # cutoff marker — everything up to here is now summarized
+    last_id = context[-1]["_id"]  
+    return response.json()["conversation_block"], last_id
