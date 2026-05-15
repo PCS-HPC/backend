@@ -1,0 +1,10 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src:/app/app       # hot reload in dev
+    environment:
+      - ENV=development
+    restart: unless-stopped
