@@ -4,6 +4,7 @@ import requests
 import os
 import uuid
 from datetime import datetime
+from pydantic import Literal
 
 AI_CLUSTER_URL = os.getenv('AI_CLUSTER_URL')
 
@@ -51,10 +52,11 @@ def get_conversation_history(convo_id, db, after_id=None):
 def save_convo(
     db,
     content: str,
-    sent_by: str,  # "user" or "ai"
+    sent_by: Literal["user", "ai"],  # "user" or "ai"
     user_id: str,
     conversation_id: str = None,
     title: str = None,
+    files: list[dict] | None = None,
 ) -> None:
     if conversation_id is None:
         conversation_id = str(uuid.uuid4())
@@ -66,6 +68,7 @@ def save_convo(
             "content": content,
             "sent_by": sent_by,
             "timestamp": datetime.utcnow(),
+            "files": files or [],
         }
     )
 
@@ -155,7 +158,7 @@ def get_chat_completion(
     if db is not None:
         conversation_id = save_convo(
             db, content=new_message, sent_by="user", user_id=user_id,
-            conversation_id=conversation_id, title=title,
+            conversation_id=conversation_id, title=title, files=files
         )
 
         save_convo(
