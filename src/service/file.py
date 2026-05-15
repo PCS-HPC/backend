@@ -1,6 +1,7 @@
 from ..api.endpoints.files import get_user_storage_dir, get_safe_path
 from pathlib import Path
-from fastapi import UploadFile
+from fastapi import UploadFile, HTTPException, status
+import os
 
 async def batch_upload(files: list[UploadFile], username) -> list[dict]:
     user_dir = get_user_storage_dir(username)
@@ -30,3 +31,19 @@ async def batch_upload(files: list[UploadFile], username) -> list[dict]:
         })
 
     return uploaded
+
+def _check_path(path: str | None) -> str:
+    """Validate a file path exists and is readable. Returns the path or raises."""
+    if not path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No file path recorded for this job")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"File not found: {path}")
+    if not os.access(path, os.R_OK):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="File is not readable")
+    return path
+ 
+def _tail(path: str, lines: int) -> str:
+    """Read the last N lines of a file"""
+    with open(path, "r", errors="replace") as f:
+        return "".join(f.readlines()[-lines:])
+ 

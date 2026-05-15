@@ -2,6 +2,7 @@
 import subprocess
 from datetime import datetime, timedelta
 from typing import Optional
+import json
  
 # All fields we care about from sacct
 SACCT_FIELDS = [
@@ -129,7 +130,6 @@ def _normalize_row(row: dict) -> dict:
     return {
         "job_id":    row["JobID"],
         "job_name":  row["JobName"],
-        "type":      None, # populated seperately from MongoDB
         "status":    state,
         "submitted": _format_dt(row.get("Submit")),
         "start":     _format_dt(row.get("Start")),
@@ -252,17 +252,14 @@ def get_job_stats(user: Optional[str] = None, days_back: int = 7) -> dict:
     jobs = get_all_jobs(user=user, days_back=days_back)
  
     by_status: dict[str, int] = {}
-    by_type:   dict[str, int] = {}
  
     for j in jobs:
         by_status[j["status"]] = by_status.get(j["status"], 0) + 1
-        by_type[j["type"]]     = by_type.get(j["type"], 0) + 1
  
     return {
         "total_jobs":    len(jobs),
         # total_credits: TODO: fetch from MongoDB and merge here
         "by_status":     by_status,
-        "by_type":       by_type,
     }
  
 def get_job_output_paths(job_id: str) -> dict:
