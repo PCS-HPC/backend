@@ -3,7 +3,7 @@ from ...service import slurm
 
 app = FastAPI()
  
-@app.get("/api/jobs")
+@app.get("/jobs")
 def list_jobs(
     status: str | None = Query(None),
     current_user: dict = Depends(get_current_user),
@@ -14,7 +14,7 @@ def list_jobs(
         return slurm.get_jobs_by_status(status, user=user, days_back=days)
     return slurm.get_all_jobs(user=user, days_back=days)
  
-@app.get("/api/jobs/{job_id}")
+@app.get("/jobs/{job_id}")
 def job_detail(
     job_id: str,
     current_user: dict = Depends(get_current_user)
@@ -25,7 +25,7 @@ def job_detail(
         raise HTTPException(status_code=404, detail="Job not found")
     return job
 
-@app.get("/api/stats")
+@app.get("/stats")
 def stats(
     current_user: dict = Depends(get_current_user)
 ):
