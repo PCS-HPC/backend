@@ -4,7 +4,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./src:/app/app       # hot reload in dev
+      - ./src:/app/src
     environment:
       - ENV=development
     restart: unless-stopped
