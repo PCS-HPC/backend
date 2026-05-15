@@ -4,7 +4,7 @@ import requests
 import os
 import uuid
 from datetime import datetime
-from pydantic import Literal
+from typing import Literal
 
 AI_CLUSTER_URL = os.getenv('AI_CLUSTER_URL')
 
