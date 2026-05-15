@@ -137,7 +137,6 @@ def get_chat_completion(
             RuntimeError:       If the prompt is flagged as unsafe.
     """
     prompt = build_prompt(summary, context, new_message, files=files)
-    print(prompt)
 
     if db is not None:
         conversation_id = save_convo(

@@ -3,6 +3,10 @@ from fastapi import UploadFile, APIRouter, Request, HTTPException, status, Depen
 from .auth import get_current_user
 from ...service import ai, file
 from pydantic import BaseModel
+from bson import ObjectId
+from fastapi.encoders import ENCODERS_BY_TYPE
+
+ENCODERS_BY_TYPE[ObjectId] = str
 
 class ChatMessage(BaseModel):
     message: str
@@ -16,9 +20,6 @@ def get_convo_list(
 ):
     user_id = current_user["_id"]
     list_o_convo = list(request.app.db.conversations.find({"owner": user_id}))
-    for convo in list_o_convo:
-        convo["_id"] = str(convo["_id"]) # need to convert or fastapi cries...
-        convo.pop("owner") # dont need you
     return list_o_convo
 
 @router.delete("/convo/{convo_id}")
@@ -49,7 +50,7 @@ async def create_chat(
     user_id = current_user["_id"]
     user_name = current_user["username"]
 
-    uploaded_files = await file.upload_files_to_storage(files, user_name) if files else []
+    uploaded_files = await file.batch_upload(files, user_name) if files else []
 
     result, convo_id = ai.get_chat_completion(
         context=[],
@@ -79,9 +80,6 @@ def get_chat(
     convo["_id"] = str(convo["_id"])
     convo.pop("owner")
     dialogues = ai.get_conversation_history(convo_id, db)
-    for dialogue in dialogues:
-        dialogue["_id"] = str(dialogue["_id"]) # need to convert or fastapi cries...
-        dialogue.pop("conversation_id")
     return {"conversation": convo, "dialogues": dialogues}
 
 @router.post("/convo/{convo_id}", status_code=status.HTTP_201_CREATED)
@@ -111,6 +109,7 @@ async def continue_conversation(
 
     max_tokens = ai.get_max_token()
     total_tokens = ai.estimate_token(ai.build_prompt(summary, context, message))
+    print(total_tokens, max_tokens)
     if max_tokens and total_tokens > max_tokens:
         summary, cutoff_id  = ai.summarize_context(summary, context)
         db.conversations.update_one(
