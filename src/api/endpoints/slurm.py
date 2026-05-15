@@ -1,8 +1,8 @@
-from fastapi import FastAPI, Query, Depends
+from fastapi import APIRouter, Query, Depends
 from ...service import slurm
 from src.api.endpoints.auth import get_current_user
 
-app = FastAPI()
+router = APIRouter()
  
 @app.get("/jobs")
 def list_jobs(
