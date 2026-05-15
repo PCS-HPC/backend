@@ -7,7 +7,6 @@ from typing import Optional
 SACCT_FIELDS = [
     "JobID",
     "JobName",
-    "Partition",       # maps to "Type" (GPU, MPI, SPARK, etc.)
     "State",
     "Submit",
     "Start",
@@ -92,7 +91,7 @@ def _normalize_row(row: dict) -> dict:
     return {
         "job_id":    row["JobID"],
         "job_name":  row["JobName"],
-        "type":      (row.get("Partition") or "").upper(),
+        "type":      None, # populated seperately from MongoDB
         "status":    state,
         "submitted": _format_dt(row.get("Submit")),
         "start":     _format_dt(row.get("Start")),
