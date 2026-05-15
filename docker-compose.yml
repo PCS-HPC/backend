@@ -7,4 +7,6 @@ services:
       - ./src:/app/src
     environment:
       - ENV=development
+    env_file:
+      - .env
     restart: unless-stopped
