@@ -105,7 +105,7 @@ def get_chat_completion(
     new_message, 
     user_id, 
     user_name,
-    user_role = 'user',
+    user_role,
     db = None,
     conversation_id: str = None,
     title: str = None,
