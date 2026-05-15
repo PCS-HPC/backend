@@ -26,6 +26,7 @@ async def batch_upload(files: list[UploadFile], username) -> list[dict]:
         uploaded.append({
             "name": destination.name,
             "path": str(destination),
+            "relative_path": destination.relative_to(user_dir).as_posix()
         })
 
     return uploaded
