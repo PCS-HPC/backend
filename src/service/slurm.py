@@ -14,6 +14,7 @@ SACCT_FIELDS = [
     "Elapsed",       # runtime
     "AllocTRES",     # contains GPU count and memory, e.g. "cpu=8,mem=32G,gres/gpu=1"
     "ReqMem",        # requested memory as a simpler field
+    "MaxRSS",    # peak memory actually used (available post-completion)
     "AllocCPUS",
     "ExitCode",
     "User",
@@ -34,6 +35,30 @@ STATE_MAP = {
     "NODE_FAIL":  "Failed",
     "OUT_OF_MEMORY": "Failed",
 }
+
+def _parse_rss(rss_str: str) -> int:
+    """Convert sacct memory string (e.g. '3220K', '1.5M') to KB."""
+    if not rss_str or rss_str in ("", "--"):
+        return 0
+    rss_str = rss_str.strip()
+    try:
+        if rss_str.endswith("K"):
+            return int(float(rss_str[:-1]))
+        elif rss_str.endswith("M"):
+            return int(float(rss_str[:-1]) * 1024)
+        elif rss_str.endswith("G"):
+            return int(float(rss_str[:-1]) * 1024 * 1024)
+        return int(rss_str)
+    except ValueError:
+        return 0
+
+def _format_rss(kb: int) -> str:
+    """Format KB value into human readable string."""
+    if kb >= 1024 * 1024:
+        return f"{kb / (1024 * 1024):.1f}G"
+    elif kb >= 1024:
+        return f"{kb / 1024:.1f}M"
+    return f"{kb}K"
  
 def _run_sacct(extra_args: list[str]) -> list[dict]:
     """
@@ -61,18 +86,31 @@ def _run_sacct(extra_args: list[str]) -> list[dict]:
         )
  
     rows = []
+    step_rss: dict[str, int] = {}  # job_id → max MaxRSS across steps
+
     for line in result.stdout.strip().splitlines():
         if not line:
             continue
         parts = line.split("|")
         row = dict(zip(SACCT_FIELDS, parts))
- 
-        # Drop sub-steps like 12345.batch and 12345.extern
         job_id = row.get("JobID", "")
+
         if "." in job_id:
+            # it's a step — extract MaxRSS and track the max
+            parent_id = job_id.split(".")[0]
+            rss_str = row.get("MaxRSS", "")
+            rss_kb = _parse_rss(rss_str)
+            if rss_kb > step_rss.get(parent_id, 0):
+                step_rss[parent_id] = rss_kb
             continue
- 
+
         rows.append(row)
+
+    # merge MaxRSS back into parent rows
+    for row in rows:
+        job_id = row["JobID"]
+        kb = step_rss.get(job_id, 0)
+        row["MaxRSS"] = _format_rss(kb) if kb > 0 else ""
  
     return rows
  
@@ -103,7 +141,8 @@ def _normalize_row(row: dict) -> dict:
         "nodes":     row.get("NodeList", ""),
         "cpus":   int(row.get("AllocCPUS") or 0),
         "gpus":   tres["gpus"],
-        "memory": tres["memory"],
+        "memory_requested": row.get("ReqMem") or "—",
+        "memory_used":      row.get("MaxRSS") or "—",
     }
  
  
