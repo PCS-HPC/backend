@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Query, Depends
 from ...service import slurm
+from src.api.endpoints.auth import get_current_user
 
 app = FastAPI()
  
