@@ -9,12 +9,10 @@ from fastapi.responses import FileResponse
 
 from src.api.endpoints.auth import get_current_user
 
-
 router = APIRouter()
 
 raw_storage_root = os.getenv("LOCAL_STORAGE_DIR", "storage")
 STORAGE_ROOT = Path(os.path.expandvars(os.path.expanduser(raw_storage_root))).resolve()
-
 
 def sanitize_username(username: str) -> str:
     clean_username = username.strip().lower()

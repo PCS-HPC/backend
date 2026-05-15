@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Request, HTTPException, status
+from fastapi import APIRouter, Request, HTTPException, status, Depends
+from .auth import get_current_user
 from pydantic import BaseModel, EmailStr
 from ldap3.core.exceptions import LDAPEntryAlreadyExistsResult
 from ...service import ldap
@@ -132,3 +133,7 @@ def create_user(user: UserCreate, request: Request):
         "status": new_user["status"],
         "creditBalance": new_user["creditBalance"],
     }
+
+@router.get("/ai/convo", status_code=status.HTTP_201_CREATED)
+def get_user_chats(current_user: dict = Depends(get_current_user)):
+    pass
