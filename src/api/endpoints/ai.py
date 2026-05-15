@@ -49,6 +49,7 @@ async def create_chat(
     db = request.app.db
     user_id = current_user["_id"]
     user_name = current_user["username"]
+    user_role = current_user["role"]
 
     uploaded_files = await file.batch_upload(files, user_name) if files else []
 
@@ -57,6 +58,7 @@ async def create_chat(
         new_message=message,
         user_id=user_id,
         user_name=user_name,
+        user_role=user_role,
         db=db,
         conversation_id=None,
         title=message[:60] + ("..." if len(message) > 60 else ""),
@@ -93,6 +95,7 @@ async def continue_conversation(
     db = request.app.db
     user_id = current_user["_id"]
     user_name = current_user["username"]
+    user_role = current_user["role"]
 
     conversation = db.conversations.find_one({"_id": convo_id})
     if not conversation or conversation['owner'] != user_id:
@@ -123,6 +126,7 @@ async def continue_conversation(
         new_message=message,
         user_id=user_id,
         user_name=user_name,
+        user_role=user_role,
         db=db,
         conversation_id=convo_id,
         summary=summary,
