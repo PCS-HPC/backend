@@ -226,3 +226,36 @@ def get_job_stats(user: Optional[str] = None, days_back: int = 7) -> dict:
         "by_type":       by_type,
     }
  
+def get_job_output_paths(job_id: str) -> dict:
+    """
+    Use --json specifically to get expanded stdout/stderr paths.
+    
+    See, if we use --parseable2 for output, we get this:
+    sacct -j 182 --format=JobID,StdOut,StdErr,WorkDir --parsable2 --noheader
+    182|/mnt/beegfs/test/hostname_%j.out||/mnt/beegfs/test
+    182.batch|||
+    182.0|||
+    
+    Now if we do 
+    sacct --jobs=182 --json > 182.json
+    jq --raw-output '.jobs[].stdout_expanded' < 182.json
+    
+    We get:
+    /mnt/beegfs/test/hostname_182.out
+    
+    Which is SO much more better than whatever the fuck the above one is
+    but --json returns EVERYTHING, even stuff that we dont really give a shit about
+    """
+    result = subprocess.run(
+        ["sacct", f"--jobs={job_id}", "--json"],
+        capture_output=True, text=True
+    )
+    data = json.loads(result.stdout)
+    job = data["jobs"][0] if data.get("jobs") else None
+    if not job:
+        return {}
+    return {
+        "stdout": job.get("stdout_expanded"),
+        "stderr": job.get("stderr_expanded"),
+        "work_dir": job.get("working_directory"),
+    }
