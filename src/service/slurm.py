@@ -1,0 +1,229 @@
+# mm yummy slurm
+import subprocess
+from datetime import datetime, timedelta
+from typing import Optional
+ 
+# All fields we care about from sacct
+SACCT_FIELDS = [
+    "JobID",
+    "JobName",
+    "Partition",       # maps to "Type" (GPU, MPI, SPARK, etc.)
+    "State",
+    "Submit",
+    "Start",
+    "End",
+    "Elapsed",       # runtime
+    "AllocTRES",     # contains GPU count and memory, e.g. "cpu=8,mem=32G,gres/gpu=1"
+    "ReqMem",        # requested memory as a simpler field
+    "AllocCPUS",
+    "ExitCode",
+    "User",
+    "NodeList",
+]
+ 
+FIELD_STR = ",".join(SACCT_FIELDS)
+ 
+# Slurm state → dashboard label
+STATE_MAP = {
+    "RUNNING":    "Running",
+    "PENDING":    "Pending",
+    "COMPLETED":  "Completed",
+    "FAILED":     "Failed",
+    "CANCELLED":  "Cancelled",
+    "CANCELLED+": "Cancelled",   # cancelled by a signal
+    "TIMEOUT":    "Failed",
+    "NODE_FAIL":  "Failed",
+    "OUT_OF_MEMORY": "Failed",
+}
+ 
+def _run_sacct(extra_args: list[str]) -> list[dict]:
+    """
+    Run sacct with our standard flags + any extra args.
+    Returns a list of dicts keyed by SACCT_FIELDS, with batch/extern
+    steps already stripped out.
+    """
+    cmd = [
+        "sacct",
+        "--format",    FIELD_STR,
+        "--parsable2",          # pipe-delimited, no trailing |
+        "--noheader",
+        "--units",     "G",
+    ] + extra_args
+ 
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+    )
+ 
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"sacct failed (exit {result.returncode}): {result.stderr.strip()}"
+        )
+ 
+    rows = []
+    for line in result.stdout.strip().splitlines():
+        if not line:
+            continue
+        parts = line.split("|")
+        row = dict(zip(SACCT_FIELDS, parts))
+ 
+        # Drop sub-steps like 12345.batch and 12345.extern
+        job_id = row.get("JobID", "")
+        if "." in job_id:
+            continue
+ 
+        rows.append(row)
+ 
+    return rows
+ 
+ 
+def _normalize_row(row: dict) -> dict:
+    """
+    Clean up a raw sacct row into the shape the dashboard expects.
+    """
+    raw_state = row.get("State", "").upper().split(" ")[0]  # strip "by uid=xxx"
+    state = STATE_MAP.get(raw_state, raw_state.capitalize())
+    tres = _parse_tres(row.get("AllocTRES", ""))
+ 
+    # Credits come from MongoDB — fetched separately and merged at the route level.
+    # TODO: join with MongoDB credits by job_id before returning to the frontend.
+ 
+    return {
+        "job_id":    row["JobID"],
+        "job_name":  row["JobName"],
+        "type":      (row.get("Partition") or "").upper(),
+        "status":    state,
+        "submitted": _format_dt(row.get("Submit")),
+        "start":     _format_dt(row.get("Start")),
+        "end":       _format_dt(row.get("End")),
+        "runtime":   row.get("Elapsed", ""),
+        "credits":   None,  # populated separately from MongoDB
+        "exit_code": row.get("ExitCode", ""),
+        "user":      row.get("User", ""),
+        "nodes":     row.get("NodeList", ""),
+        "cpus":   int(row.get("AllocCPUS") or 0),
+        "gpus":   tres["gpus"],
+        "memory": tres["memory"],
+    }
+ 
+ 
+def _format_dt(raw: Optional[str]) -> Optional[str]:
+    """Parse and reformat a Slurm datetime string. Returns None if unknown."""
+    if not raw or raw in ("Unknown", "None", "N/A", ""):
+        return None
+    try:
+        dt = datetime.strptime(raw, "%Y-%m-%dT%H:%M:%S")
+        return dt.strftime("%-d %b, %I:%M %p")   # e.g. "15 May, 12:13 pm"
+    except ValueError:
+        return raw
+ 
+def _parse_tres(alloc_tres: str) -> dict:
+    """Parse AllocTRES string into individual fields."""
+    result = {"gpus": 0, "memory": "—"}
+    for item in alloc_tres.split(","):
+        if item.startswith("gres/gpu="):
+            result["gpus"] = int(item.split("=")[1] or 0)
+        elif item.startswith("mem="):
+            result["memory"] = item.split("=")[1]   # e.g. "32G"
+    return result
+
+def get_all_jobs(
+    user: Optional[str] = None,
+    days_back: int = 7,
+) -> list[dict]:
+    """
+    Return all jobs (any state) submitted in the last `days_back` days.
+    Optionally filter by `user`.
+    """
+    start = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    args = ["--starttime", start, "--allusers"]
+    if user:
+        args = ["--starttime", start, "--user", user]
+ 
+    rows = _run_sacct(args)
+    return [_normalize_row(r) for r in rows]
+ 
+ 
+def get_jobs_by_status(
+    status: str,
+    user: Optional[str] = None,
+    days_back: int = 7,
+) -> list[dict]:
+    """
+    Return jobs filtered by dashboard status label:
+    'Running' | 'Pending' | 'Completed' | 'Failed' | 'Cancelled'
+ 
+    Filtering is done natively via sacct --state, not in Python.
+    'Failed' expands to FAILED,TIMEOUT,NODE_FAIL,OUT_OF_MEMORY.
+    'Cancelled' expands to CANCELLED (sacct matches partial strings like CANCELLED+).
+    """
+    # Dashboard label → sacct --state value(s)
+    STATUS_TO_SLURM = {
+        "running":   "RUNNING",
+        "pending":   "PENDING",
+        "completed": "COMPLETED",
+        "failed":    "FAILED,TIMEOUT,NODE_FAIL,OUT_OF_MEMORY",
+        "cancelled": "CANCELLED",
+    }
+ 
+    slurm_state = STATUS_TO_SLURM.get(status.lower())
+    if not slurm_state:
+        raise ValueError(
+            f"Unknown status '{status}'. "
+            f"Valid values: {list(STATUS_TO_SLURM.keys())}"
+        )
+ 
+    start = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    args = ["--starttime", start, "--state", slurm_state]
+    args += ["--user", user] if user else ["--allusers"]
+ 
+    rows = _run_sacct(args)
+    return [_normalize_row(r) for r in rows]
+ 
+ 
+def get_job_by_id(job_id: str) -> Optional[dict]:
+    """
+    Return a single job by its Slurm JobID (e.g. 'JOB-1042' or '1042').
+    Returns None if not found.
+    """
+    # Strip any 'JOB-' prefix your frontend adds
+    numeric_id = job_id.replace("JOB-", "").replace("job-", "")
+    rows = _run_sacct(["--jobs", numeric_id])
+    if not rows:
+        return None
+    return _normalize_row(rows[0])
+ 
+ 
+def get_active_jobs(user: Optional[str] = None) -> list[dict]:
+    """
+    Return only Running and Pending jobs, filtered natively by sacct.
+    """
+    start = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    args = ["--starttime", start, "--state", "RUNNING,PENDING"]
+    args += ["--user", user] if user else ["--allusers"]
+ 
+    rows = _run_sacct(args)
+    return [_normalize_row(r) for r in rows]
+ 
+ 
+def get_job_stats(user: Optional[str] = None, days_back: int = 7) -> dict:
+    """
+    Return aggregate statistics for the dashboard summary panel.
+    """
+    jobs = get_all_jobs(user=user, days_back=days_back)
+ 
+    by_status: dict[str, int] = {}
+    by_type:   dict[str, int] = {}
+ 
+    for j in jobs:
+        by_status[j["status"]] = by_status.get(j["status"], 0) + 1
+        by_type[j["type"]]     = by_type.get(j["type"], 0) + 1
+ 
+    return {
+        "total_jobs":    len(jobs),
+        # total_credits: TODO: fetch from MongoDB and merge here
+        "by_status":     by_status,
+        "by_type":       by_type,
+    }
+ 
