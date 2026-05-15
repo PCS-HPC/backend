@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Depends
 from ...service import slurm
 
 app = FastAPI()
