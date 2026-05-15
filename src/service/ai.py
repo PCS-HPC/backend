@@ -138,12 +138,6 @@ def get_chat_completion(
     """
     prompt = build_prompt(summary, context, new_message, files=files)
 
-    if db is not None:
-        conversation_id = save_convo(
-            db, content=new_message, sent_by="user", user_id=user_id,
-            conversation_id=conversation_id, title=title,
-        )
-
     payload = {
         "user_id": user_name,
         "user_role": user_role,
@@ -159,6 +153,11 @@ def get_chat_completion(
         return result, conversation_id
 
     if db is not None:
+        conversation_id = save_convo(
+            db, content=new_message, sent_by="user", user_id=user_id,
+            conversation_id=conversation_id, title=title,
+        )
+
         save_convo(
             db, content=result.get("final_response", ""), sent_by="ai", user_id=user_id,
             conversation_id=conversation_id, title=title,
