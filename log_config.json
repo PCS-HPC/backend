@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "disable_existing_loggers": false,
+  "filters": {
+    "otel_filter": {
+      "()": "opentelemetry.instrumentation.logging.LoggingInstrumentor",
+      "set_logging_format": false
+    }
+  },
+  "formatters": {
+    "otel": {
+      "format": "%(asctime)s %(levelname)s [%(name)s] [%(filename)s:%(lineno)d] [trace_id=%(otelTraceID)s span_id=%(otelSpanID)s resource.service.name=%(otelServiceName)s] - %(message)s",
+      "defaults": {
+        "otelTraceID": "0",
+        "otelSpanID": "0",
+        "otelServiceName": ""
+      }
+    }
+  },
+  "handlers": {
+    "file": {
+      "class": "logging.FileHandler",
+      "filename": "/var/log/fastapi/app.log",
+      "formatter": "otel"
+    },
+    "console": {
+      "class": "logging.StreamHandler",
+      "formatter": "otel"
+    }
+  },
+  "root": {
+    "level": "INFO",
+    "handlers": ["file", "console"]
+  }
+}

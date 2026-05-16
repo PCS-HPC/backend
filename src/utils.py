@@ -13,6 +13,9 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Match
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 REQUESTS = Counter(
     "fastapi_requests_total",
@@ -58,7 +61,9 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         before_time = time.perf_counter()
 
         try:
+            logger.info(f"{method} {path}")
             response = await call_next(request)
+            logger.info(f"{method} {path} {response.status_code}")
         except Exception as e:
             EXCEPTIONS.labels(method=method, path=path, exception_type=type(e).__name__, app_name=self.app_name).inc()
             raise e
@@ -93,5 +98,4 @@ def setting_otlp(app, app_name: str, endpoint: str) -> None:
     tracer = TracerProvider(resource=resource)
     trace.set_tracer_provider(tracer)
     tracer.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
-    LoggingInstrumentor().instrument(set_logging_format=True)
     FastAPIInstrumentor.instrument_app(app, tracer_provider=tracer)

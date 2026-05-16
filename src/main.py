@@ -12,10 +12,18 @@ from src.api import api
 from src.service import ldap
 from src.utils import PrometheusMiddleware, metrics, setting_otlp
 
+import logging
+from opentelemetry.instrumentation.logging import LoggingInstrumentor
+
 load_dotenv()
 LDAP_ACTIVATED = os.getenv("LDAP_ACTIVATED") == 'true'
 APP_NAME = os.getenv("APP_NAME")
 OTLP_ENDPOINT = os.getenv("OTLP_ENDPOINT", "http://localhost:4317")
+
+LoggingInstrumentor().instrument(set_logging_format=True)
+logging.getLogger(__name__).info("Logging is working")
+logging.getLogger("uvicorn.access").setLevel(logging.INFO)
+logging.getLogger("uvicorn.error").setLevel(logging.INFO)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
