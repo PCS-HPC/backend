@@ -3,9 +3,6 @@ from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 
-load_dotenv()
-LDAP_ACTIVATED = os.getenv("LDAP_ACTIVATED") == 'true'
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
@@ -13,6 +10,12 @@ from argon2 import PasswordHasher
 
 from src.api import api
 from src.service import ldap
+from src.utils import PrometheusMiddleware, metrics, setting_otlp
+
+load_dotenv()
+LDAP_ACTIVATED = os.getenv("LDAP_ACTIVATED") == 'true'
+APP_NAME = os.getenv("APP_NAME")
+OTLP_ENDPOINT = os.getenv("OTLP_ENDPOINT", "http://localhost:4317")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -55,8 +58,12 @@ async def lifespan(app: FastAPI):
 
 
 origins = ['*'] # fuck you
-
 app = FastAPI(lifespan=lifespan)
+
+# Observability
+app.add_middleware(PrometheusMiddleware, app_name=APP_NAME)
+app.add_route("/metrics", metrics)
+setting_otlp(app, APP_NAME, OTLP_ENDPOINT)
 
 app.add_middleware(
     CORSMiddleware,
