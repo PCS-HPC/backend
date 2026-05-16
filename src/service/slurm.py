@@ -3,7 +3,10 @@ import subprocess
 from datetime import datetime, timedelta
 from typing import Optional
 import json
+from zoneinfo import ZoneInfo
  
+TIMEZONE = ZoneInfo("Asia/Kuala_Lumpur")
+
 # All fields we care about from sacct
 SACCT_FIELDS = [
     "JobID",
@@ -152,6 +155,7 @@ def _format_dt(raw: Optional[str]) -> Optional[str]:
         return None
     try:
         dt = datetime.strptime(raw, "%Y-%m-%dT%H:%M:%S")
+        dt = dt.replace(tzinfo=ZoneInfo("UTC")).astimezone(TIMEZONE)
         return dt.strftime("%-d %b, %I:%M %p")   # e.g. "15 May, 12:13 pm"
     except ValueError:
         return raw
@@ -213,8 +217,10 @@ def get_jobs_by_status(
         )
  
     start = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
-    end = datetime.now().strftime("%Y-%m-%d")
-    args = ["--starttime", start, "--endtime", end, "--state", slurm_state]
+    end = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    args = ["--starttime", start, "--state", slurm_state]
+    if (status in ["completed", "failed", "cancelled"]):
+        args += ["--endtime", end]
     args += ["--user", user] if user else ["--allusers"]
  
     rows = _run_sacct(args)
