@@ -213,7 +213,8 @@ def get_jobs_by_status(
         )
  
     start = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
-    args = ["--starttime", start, "--state", slurm_state]
+    end = datetime.now().strftime("%Y-%m-%d")
+    args = ["--starttime", start, "--endtime", end, "--state", slurm_state]
     args += ["--user", user] if user else ["--allusers"]
  
     rows = _run_sacct(args)
@@ -231,19 +232,6 @@ def get_job_by_id(job_id: str) -> Optional[dict]:
     if not rows:
         return None
     return _normalize_row(rows[0])
- 
- 
-def get_active_jobs(user: Optional[str] = None) -> list[dict]:
-    """
-    Return only Running and Pending jobs, filtered natively by sacct.
-    """
-    start = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-    args = ["--starttime", start, "--state", "RUNNING,PENDING"]
-    args += ["--user", user] if user else ["--allusers"]
- 
-    rows = _run_sacct(args)
-    return [_normalize_row(r) for r in rows]
- 
  
 def get_job_stats(user: Optional[str] = None, days_back: int = 7) -> dict:
     """
@@ -271,6 +259,7 @@ def get_job_output_paths(job_id: str) -> dict:
     182|/mnt/beegfs/test/hostname_%j.out||/mnt/beegfs/test
     182.batch|||
     182.0|||
+    And we need to figure out and replace %j by ourself
     
     Now if we do 
     sacct --jobs=182 --json > 182.json
