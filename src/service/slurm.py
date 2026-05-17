@@ -212,7 +212,9 @@ def get_jobs_by_status(
  
     start = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
     end = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    args = ["--starttime", start, "--state", slurm_state]
+    args = ["--state", slurm_state]
+    if status.lower() not in ['running', 'pending']:
+        args += ["--starttime", start]
     if (status in ["completed", "failed", "cancelled"]):
         args += ["--endtime", end]
     args += ["--user", user] if user else ["--allusers"]
