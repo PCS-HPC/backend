@@ -78,11 +78,15 @@ def build_prompt(summary, context, new_message, files: list[dict] | None = None)
     history_block = ""
     history_lines = [f"summarised={summary}\n"] if summary and len(summary) else []
 
-    for dialouge in context:
-        if (dialouge['sent_by'] == 'user'):
-            history_lines.append(f"prompt={dialouge['content']}")
-        elif (dialouge['sent_by'] == 'ai'):
-            history_lines.append(f"response={dialouge['content']}")
+    for dialogue in context:
+        if dialogue['sent_by'] == 'user':
+            content = dialogue['content']
+            if dialogue.get('files'):
+                file_refs = "\n".join(f'{f["name"]}: {f["path"]}' for f in dialogue['files'])
+                content = f"{content}\n\nFiles added can be located in:\n{file_refs}"
+            history_lines.append(f"prompt={content}")
+        elif dialogue['sent_by'] == 'ai':
+            history_lines.append(f"response={dialogue['content']}")
 
     history_block = (
         "<previous_prompts_and_response>\n"
@@ -98,7 +102,6 @@ def build_prompt(summary, context, new_message, files: list[dict] | None = None)
         f"{history_block}"
         f"<current_prompt>\n{new_message}\n</current_prompt>"
     )
-
 
 def get_chat_completion(
     context, 
