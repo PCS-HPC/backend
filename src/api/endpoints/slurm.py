@@ -7,25 +7,27 @@ import os
 router = APIRouter()
 
 PREVIEW_LINES = 200
- 
 @router.get("/jobs")
 def list_jobs(
+    request: Request,
     status: str | None = Query(None),
     current_user: dict = Depends(get_current_user),
     days:   int        = Query(7),
 ):
     user = current_user["username"]
+    db = request.app.db
     if status:
-        return slurm.get_jobs_by_status(status, user=user, days_back=days)
-    return slurm.get_all_jobs(user=user, days_back=days)
+        return slurm.get_jobs_by_status(status, user=user, days_back=days, db=db)
+    return slurm.get_all_jobs(user=user, days_back=days, db=db)
  
 @router.get("/jobs/{job_id}")
 def job_detail(
     job_id: str,
+    request: Request,
     current_user: dict = Depends(get_current_user)
 ):
-    user = current_user["username"]
-    job = slurm.get_job_by_id(job_id)
+    db = request.app.db
+    job = slurm.get_job_by_id(job_id, db=db)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job

@@ -119,35 +119,32 @@ def _run_sacct(extra_args: list[str]) -> list[dict]:
     return rows
  
  
-def _normalize_row(row: dict) -> dict:
-    """
-    Clean up a raw sacct row into the shape the dashboard expects.
-    """
-    raw_state = row.get("State", "").upper().split(" ")[0]  # strip "by uid=xxx"
+def _normalize_row(row: dict, db) -> dict:
+    raw_state = row.get("State", "").upper().split(" ")[0]
     state = STATE_MAP.get(raw_state, raw_state.capitalize())
     tres = _parse_tres(row.get("AllocTRES", ""))
- 
-    # Credits come from MongoDB — fetched separately and merged at the route level.
-    # TODO: join with MongoDB credits by job_id before returning to the frontend.
- 
+
+    job_id = row["JobID"]
+    slurm_job = db["slurm_jobs"].find_one({"jobId": job_id}, {"amount": 1})
+    credits = slurm_job["amount"] if slurm_job else None
+
     return {
-        "job_id":    row["JobID"],
-        "job_name":  row["JobName"],
-        "status":    state,
-        "submitted": _format_dt(row.get("Submit")),
-        "start":     _format_dt(row.get("Start")),
-        "end":       _format_dt(row.get("End")),
-        "runtime":   row.get("Elapsed", ""),
-        "credits":   None,  # populated separately from MongoDB
-        "exit_code": row.get("ExitCode", ""),
-        "user":      row.get("User", ""),
-        "nodes":     row.get("NodeList", ""),
-        "cpus":   int(row.get("AllocCPUS") or 0),
-        "gpus":   tres["gpus"],
+        "job_id":           job_id,
+        "job_name":         row["JobName"],
+        "status":           state,
+        "submitted":        _format_dt(row.get("Submit")),
+        "start":            _format_dt(row.get("Start")),
+        "end":              _format_dt(row.get("End")),
+        "runtime":          row.get("Elapsed", ""),
+        "credits":          credits,
+        "exit_code":        row.get("ExitCode", ""),
+        "user":             row.get("User", ""),
+        "nodes":            row.get("NodeList", ""),
+        "cpus":             int(row.get("AllocCPUS") or 0),
+        "gpus":             tres["gpus"],
         "memory_requested": row.get("ReqMem") or "—",
         "memory_used":      row.get("MaxRSS") or "—",
     }
- 
  
 def _format_dt(raw: Optional[str]) -> Optional[str]:
     """Parse and reformat a Slurm datetime string. Returns None if unknown."""
@@ -171,26 +168,23 @@ def _parse_tres(alloc_tres: str) -> dict:
     return result
 
 def get_all_jobs(
-    user: Optional[str] = None,
-    days_back: int = 7,
+    user=None, 
+    days_back=7, 
+    db=None
 ) -> list[dict]:
-    """
-    Return all jobs (any state) submitted in the last `days_back` days.
-    Optionally filter by `user`.
-    """
     start = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
     args = ["--starttime", start, "--allusers"]
     if user:
         args = ["--starttime", start, "--user", user]
- 
     rows = _run_sacct(args)
-    return [_normalize_row(r) for r in rows]
- 
+    return [_normalize_row(r, db) for r in rows]
+
  
 def get_jobs_by_status(
     status: str,
     user: Optional[str] = None,
     days_back: int = 7,
+    db=None
 ) -> list[dict]:
     """
     Return jobs filtered by dashboard status label:
@@ -224,10 +218,10 @@ def get_jobs_by_status(
     args += ["--user", user] if user else ["--allusers"]
  
     rows = _run_sacct(args)
-    return [_normalize_row(r) for r in rows]
+    return [_normalize_row(r, db) for r in rows]
  
  
-def get_job_by_id(job_id: str) -> Optional[dict]:
+def get_job_by_id(job_id: str, db=None) -> Optional[dict]:
     """
     Return a single job by its Slurm JobID (e.g. 'JOB-1042' or '1042').
     Returns None if not found.
@@ -237,7 +231,7 @@ def get_job_by_id(job_id: str) -> Optional[dict]:
     rows = _run_sacct(["--jobs", numeric_id])
     if not rows:
         return None
-    return _normalize_row(rows[0])
+    return _normalize_row(rows[0], db)
  
 def get_job_stats(user: Optional[str] = None, days_back: int = 7) -> dict:
     """

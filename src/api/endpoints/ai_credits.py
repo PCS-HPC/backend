@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
+from src.services.credit_service import get_balance, charge_credits, refund_credits
 
 router = APIRouter()
 
@@ -17,28 +18,15 @@ class RefundRequest(BaseModel):
     job_id: str
 
 @router.post("/balance")
-async def get_balance(body: BalanceRequest):
-    # TODO: replace with MongoDB lookup
-    return { "balance": 100000 }
+async def get_balance_endpoint(body: BalanceRequest, request: Request):
+    return get_balance(request.app.db, body.user_id)
 
 
 @router.post("/charge")
-async def charge_credits(body: ChargeRequest):
-    # TODO: deduct from MongoDB balance
-    return {
-        "user_id": body.user_id,
-        "job_id":  body.job_id,
-        "amount":  body.amount,
-        "balance": 100000,
-    }
+async def charge_credits_endpoint(body: ChargeRequest, request: Request):
+    return charge_credits(request.app.db, body.user_id, body.amount, body.job_id)
 
 
 @router.post("/refund")
-async def refund_credits(body: RefundRequest):
-    # TODO: add back to MongoDB balance
-    return {
-        "user_id": body.user_id,
-        "job_id":  body.job_id,
-        "amount":  body.amount,
-        "balance": 100000,
-    }
+async def refund_credits_endpoint(body: RefundRequest, request: Request):
+    return refund_credits(request.app.db, body.user_id, body.amount, body.job_id)
