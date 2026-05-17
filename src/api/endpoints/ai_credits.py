@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
-from src.services.credit_service import get_balance, charge_credits, refund_credits
+from ...services.credit_service import get_balance, charge_credits, refund_credits
 
 router = APIRouter()
 
