@@ -150,6 +150,9 @@ def list_directory(
     items = []
 
     for item in sorted(target_dir.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
+        if item.name.startswith("."):
+            continue
+
         stat = item.stat()
         relative_path = item.relative_to(user_dir).as_posix()
 
