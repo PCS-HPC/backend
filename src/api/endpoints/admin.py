@@ -11,7 +11,7 @@ router = APIRouter()
 
 class CreditUpdateRequest(BaseModel):
     operation: Literal["set", "add", "deduct"]
-    amount: int = Field(..., ge=0)
+    amount: float = Field(..., ge=0)
     reason: str | None = None
 
 
@@ -25,14 +25,14 @@ def require_admin(current_user: dict):
     return current_user
 
 
-def require_credit_balance(user: dict) -> int:
+def require_credit_balance(user: dict) -> float:
     if "creditBalance" not in user:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"User {user.get('username', 'unknown')} is missing credit balance",
         )
 
-    return int(user["creditBalance"])
+    return float(user["creditBalance"])
 
 
 @router.get("/users")

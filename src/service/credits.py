@@ -20,7 +20,7 @@ def _require_credit_balance(user: dict) -> int:
             detail=f"User {user.get('username', 'unknown')} is missing credit balance",
         )
 
-    return int(user["creditBalance"])
+    return user["creditBalance"]
 
 
 def _record_transaction(
@@ -75,7 +75,7 @@ def charge_credits(db: Database, username: str, amount: float, job_id: str) -> d
 
     user = _get_user_by_username(db, username)
     old_balance = _require_credit_balance(user)
-    new_balance = old_balance - int(amount)
+    new_balance = old_balance - amount
 
     if new_balance < 0:
         raise HTTPException(
@@ -123,7 +123,7 @@ def refund_credits(db: Database, username: str, amount: float, job_id: str) -> d
 
     user = _get_user_by_username(db, username)
     old_balance = _require_credit_balance(user)
-    new_balance = old_balance + int(amount)
+    new_balance = old_balance + amount
 
     try:
         db["users"].update_one(
