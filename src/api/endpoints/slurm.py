@@ -15,6 +15,11 @@ def list_jobs(
     days:   int        = Query(7),
 ):
     user = current_user["username"]
+    user_role = current_user["role"]
+
+    if (user_role == "admin"):
+        user = None
+
     db = request.app.db
     if status:
         return slurm.get_jobs_by_status(status, user=user, days_back=days, db=db)
@@ -26,12 +31,20 @@ def job_detail(
     request: Request,
     current_user: dict = Depends(get_current_user)
 ):
+    user = current_user["username"]
+    user_role = current_user["role"]
+
     db = request.app.db
     job = slurm.get_job_by_id(job_id, db=db)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    if user_role != "admin":
+        if job.get("user") != user:
+            raise HTTPException(status_code=404, detail="Job not found"
     return job
 
+# dont think this is used
 @router.get("/stats")
 def stats(
     current_user: dict = Depends(get_current_user)
