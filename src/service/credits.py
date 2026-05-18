@@ -3,27 +3,14 @@ from pymongo.database import Database
 from pymongo.errors import PyMongoError
 from fastapi import HTTPException, status
 
-
-def _get_user_by_id(db: Database, user_id: str) -> dict:
-    """Fetch a user document by their string ID, raising 404 if not found."""
-    try:
-        oid = ObjectId(user_id)
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid user_id format",
-        )
-
-    user = db["users"].find_one({"_id": oid})
-
+def _get_user_by_username(db: Database, username: str) -> dict:
+    user = db["users"].find_one({"username": username})
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
-
     return user
-
 
 def _require_credit_balance(user: dict) -> int:
     """Return the user's credit balance, raising 500 if the field is missing."""
@@ -67,15 +54,15 @@ def _record_transaction(
 
 # ── Public service functions ──────────────────────────────────────────────────
 
-def get_balance(db: Database, user_id: str) -> dict:
+def get_balance(db: Database, username: str) -> dict:
     """Return the current credit balance for a user."""
-    user = _get_user_by_id(db, user_id)
+    user = _get_user_by_username(db, username)
     balance = _require_credit_balance(user)
 
     return {"balance": balance}
 
 
-def charge_credits(db: Database, user_id: str, amount: float, job_id: str) -> dict:
+def charge_credits(db: Database, username: str, amount: float, job_id: str) -> dict:
     """
     Deduct `amount` credits from the user's balance.
     Raises 400 if the resulting balance would go negative.
@@ -86,7 +73,7 @@ def charge_credits(db: Database, user_id: str, amount: float, job_id: str) -> di
             detail="Charge amount must be greater than zero",
         )
 
-    user = _get_user_by_id(db, user_id)
+    user = _get_user_by_username(db, username)
     old_balance = _require_credit_balance(user)
     new_balance = old_balance - int(amount)
 
@@ -124,7 +111,7 @@ def charge_credits(db: Database, user_id: str, amount: float, job_id: str) -> di
     }
 
 
-def refund_credits(db: Database, user_id: str, amount: float, job_id: str) -> dict:
+def refund_credits(db: Database, username: str, amount: float, job_id: str) -> dict:
     """
     Add `amount` credits back to the user's balance.
     """
@@ -134,7 +121,7 @@ def refund_credits(db: Database, user_id: str, amount: float, job_id: str) -> di
             detail="Refund amount must be greater than zero",
         )
 
-    user = _get_user_by_id(db, user_id)
+    user = _get_user_by_username(db, username)
     old_balance = _require_credit_balance(user)
     new_balance = old_balance + int(amount)
 

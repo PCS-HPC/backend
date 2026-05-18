@@ -1,32 +1,40 @@
-from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Request, Query, Header, HTTPException, Depends
+from typing import Annotated
 from ...service.credits import get_balance, charge_credits, refund_credits
+import os
+
+MCP_TOKEN = os.getenv("MCP_TOKEN")
 
 router = APIRouter()
 
-class BalanceRequest(BaseModel):
-    user_id: str
+def verify_token(authorization: Annotated[str | None, Header()] = None):
+    if not authorization or authorization != f"Bearer {MCP_TOKEN}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
-class ChargeRequest(BaseModel):
-    user_id: str
-    amount: float
-    job_id: str
+@router.get("/balance")
+async def get_balance_endpoint(
+    request: Request,
+    user_id: str = Query(...),
+    _=Depends(verify_token),
+):
+    return get_balance(request.app.db, user_id)
 
-class RefundRequest(BaseModel):
-    user_id: str
-    amount: float
-    job_id: str
+@router.get("/charge")
+async def charge_credits_endpoint(
+    request: Request,
+    user_id: str = Query(...),
+    amount: float = Query(...),
+    job_id: str = Query(...),
+    _=Depends(verify_token),
+):
+    return charge_credits(request.app.db, user_id, amount, job_id)
 
-@router.post("/balance")
-async def get_balance_endpoint(body: BalanceRequest, request: Request):
-    return get_balance(request.app.db, body.user_id)
-
-
-@router.post("/charge")
-async def charge_credits_endpoint(body: ChargeRequest, request: Request):
-    return charge_credits(request.app.db, body.user_id, body.amount, body.job_id)
-
-
-@router.post("/refund")
-async def refund_credits_endpoint(body: RefundRequest, request: Request):
-    return refund_credits(request.app.db, body.user_id, body.amount, body.job_id)
+@router.get("/refund")
+async def refund_credits_endpoint(
+    request: Request,
+    user_id: str = Query(...),
+    amount: float = Query(...),
+    job_id: str = Query(...),
+    _=Depends(verify_token),
+):
+    return refund_credits(request.app.db, user_id, amount, job_id)

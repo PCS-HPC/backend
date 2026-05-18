@@ -5,6 +5,7 @@ import os
 import uuid
 from datetime import datetime
 from typing import Literal
+import httpx
 
 AI_CLUSTER_URL = os.getenv('AI_CLUSTER_URL')
 
@@ -15,7 +16,7 @@ def get_max_token():
     # length and put in
     return 90000
 
-def estimate_token(total_context):
+async def estimate_token(total_context):
     """
     Count tokens in a conversation block using the Gemma 4 vLLM tokenizer.
 
@@ -28,13 +29,14 @@ def estimate_token(total_context):
     Raises:
         requests.HTTPError: On non-2xx responses.
     """
-    response = requests.post(
-        f"{AI_CLUSTER_URL}/api/v1/context/token-count",
-        json={"conversation_block": total_context},
-        timeout=30,
-    )
-    response.raise_for_status()
-    return response.json()["token_count"]
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{AI_CLUSTER_URL}/api/v1/context/token-count",
+            json={"conversation_block": total_context},
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()["token_count"]
 
 def get_conversation_history(convo_id, db, after_id=None):
     query = {"conversation_id": convo_id}
@@ -103,7 +105,7 @@ def build_prompt(summary, context, new_message, files: list[dict] | None = None)
         f"<current_prompt>\n{new_message}\n</current_prompt>"
     )
 
-def get_chat_completion(
+async def get_chat_completion(
     context, 
     new_message, 
     user_id, 
@@ -150,8 +152,11 @@ def get_chat_completion(
         "prompt": prompt,
     }
 
-    response = requests.post(f"{AI_CLUSTER_URL}/api/v1/chat", json=payload, timeout=60)
-    response.raise_for_status()
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{AI_CLUSTER_URL}/api/v1/chat", json=payload, timeout=180
+        )
+        response.raise_for_status()
 
     result = response.json()
 
@@ -171,7 +176,7 @@ def get_chat_completion(
 
     return result, conversation_id
 
-def summarize_context(previous_summary: str, context: list[dict]):
+async def summarize_context(previous_summary: str, context: list[dict]):
     """
     Condenses a conversation context list into a single summarized prompt
     string, suitable for injecting into a fresh request when the context
@@ -191,12 +196,13 @@ def summarize_context(previous_summary: str, context: list[dict]):
 
     transcript = build_prompt(previous_summary, context, "")
 
-    response = requests.post(
-        f"{AI_CLUSTER_URL}/api/v1/context/summarize",
-        json={"conversation_block": transcript},
-        timeout=60,
-    )
-    response.raise_for_status()
+    async with httpx.AsyncClient() as client:
+        response = requests.post(
+            f"{AI_CLUSTER_URL}/api/v1/context/summarize",
+            json={"conversation_block": transcript},
+            timeout=60,
+        )
+        response.raise_for_status()
 
     # cutoff marker — everything up to here is now summarized
     last_id = context[-1]["_id"]  

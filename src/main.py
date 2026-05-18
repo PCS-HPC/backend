@@ -3,8 +3,10 @@ from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from pymongo import MongoClient
 from argon2 import PasswordHasher
 
@@ -21,7 +23,8 @@ APP_NAME = os.getenv("APP_NAME")
 OTLP_ENDPOINT = os.getenv("OTLP_ENDPOINT", "http://localhost:4317")
 
 LoggingInstrumentor().instrument(set_logging_format=True)
-logging.getLogger(__name__).info("Logging is working")
+logger = logging.getLogger(__name__)
+logger.info("Logging is working")
 logging.getLogger("uvicorn.access").setLevel(logging.INFO)
 logging.getLogger("uvicorn.error").setLevel(logging.INFO)
 
@@ -57,6 +60,19 @@ async def lifespan(app: FastAPI):
     )
 
     print("MongoDB connected successfully")
+
+    # do this later   
+    # In your FastAPI app setup (e.g. main.py)
+    # from contextlib import asynccontextmanager
+    # import httpx
+
+    # @asynccontextmanager
+    # async def lifespan(app: FastAPI):
+    #     app.state.http_client = httpx.AsyncClient(timeout=180)
+    #     yield
+    #     await app.state.http_client.aclose()
+
+    # app = FastAPI(lifespan=lifespan)
 
     yield
 

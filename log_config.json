@@ -28,6 +28,12 @@
       "formatter": "otel"
     }
   },
+  "loggers": {
+    "uvicorn": { "level": "DEBUG", "handlers": ["file", "console"], "propagate": false },
+    "uvicorn.error": { "level": "DEBUG", "handlers": ["file", "console"], "propagate": false },
+    "uvicorn.access": { "level": "DEBUG", "handlers": ["file", "console"], "propagate": false },
+    "fastapi": { "level": "DEBUG", "handlers": ["file", "console"], "propagate": false }
+  },
   "root": {
     "level": "INFO",
     "handlers": ["file", "console"]

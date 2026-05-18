@@ -53,7 +53,7 @@ async def create_chat(
 
     uploaded_files = await file.batch_upload(files, user_name) if files else []
 
-    result, convo_id = ai.get_chat_completion(
+    result, convo_id = await ai.get_chat_completion(
         context=[],
         new_message=message,
         user_id=user_id,
@@ -111,17 +111,16 @@ async def continue_conversation(
     context = ai.get_conversation_history(convo_id, db, after_id=cutoff_id)
 
     max_tokens = ai.get_max_token()
-    total_tokens = ai.estimate_token(ai.build_prompt(summary, context, message))
-    print(total_tokens, max_tokens)
+    total_tokens = await ai.estimate_token(ai.build_prompt(summary, context, message))
     if max_tokens and total_tokens > max_tokens:
-        summary, cutoff_id  = ai.summarize_context(summary, context)
+        summary, cutoff_id  = await ai.summarize_context(summary, context)
         db.conversations.update_one(
             {"_id": convo_id}, 
             {"$set": {"summary": summary, "summary_cutoff_id": cutoff_id}}
         )
         context = []
 
-    result, _ = ai.get_chat_completion(
+    result, _ = await ai.get_chat_completion(
         context=context,
         new_message=message,
         user_id=user_id,
@@ -136,7 +135,7 @@ async def continue_conversation(
     return result
 
 @router.get("/convo/{convo_id}/context", status_code=status.HTTP_200_OK)
-def get_context_left(
+async def get_context_left(
     convo_id: str,
     request: Request,
     current_user: dict = Depends(get_current_user)
@@ -153,7 +152,7 @@ def get_context_left(
 
     context = ai.get_conversation_history(convo_id, db, after_id=cutoff_id)
     max_tokens = ai.get_max_token()
-    total_tokens = ai.estimate_token(ai.build_prompt(summary, context, ""))
+    total_tokens = await ai.estimate_token(ai.build_prompt(summary, context, ""))
 
     return {
         "max_tokens": max_tokens,
