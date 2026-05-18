@@ -154,7 +154,7 @@ async def get_chat_completion(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{AI_CLUSTER_URL}/api/v1/chat", json=payload, timeout=180
+            f"{AI_CLUSTER_URL}/api/v1/chat", json=payload, timeout=420
         )
         response.raise_for_status()
 
