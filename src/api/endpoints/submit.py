@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from ...service.slurm_submit import submit_job, generate_slurm_script
 from ...service.file import batch_upload
@@ -25,6 +25,16 @@ class SlurmJobParams(BaseModel):
     output: str | None = None
     error: str | None = None
     body: str = Field(..., min_length=1, description="The actual bash commands to run")
+
+    @field_validator("memory", mode="before")
+    @classmethod
+    def sanitize_memory(cls, v: str) -> str:
+        if not isinstance(v, str):
+            v = str(v)
+        v = v.strip().upper()
+        if v.isdigit():
+            return f"{v}G"
+        return v
 
 @router.post("/submit", response_model=SubmitResponse, status_code=201)
 async def submit(
