@@ -41,7 +41,7 @@ def job_detail(
 
     if user_role != "admin":
         if job.get("user") != user:
-            raise HTTPException(status_code=404, detail="Job not found"
+            raise HTTPException(status_code=404, detail="Job not found")
     return job
 
 # dont think this is used
