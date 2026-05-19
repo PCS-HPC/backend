@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from fastapi.responses import FileResponse
 
 from src.api.endpoints.auth import get_current_user
+from ...service.file import set_ownership, get_safe_path, get_user_storage_dir
 
 router = APIRouter()
 
@@ -52,79 +53,6 @@ def get_storage_username(current_user: dict) -> str:
         status_code=status.HTTP_400_BAD_REQUEST,
         detail="User does not have a valid Monash username",
     )
-
-
-def get_user_storage_dir(username: str) -> Path:
-    user_dir = STORAGE_ROOT / username
-    user_dir.mkdir(parents=True, exist_ok=True)
-    return user_dir.resolve()
-
-
-def clean_relative_path(raw_path: Optional[str]) -> Path:
-    """
-    Allows nested paths like:
-    - assignment
-    - assignment/notes.txt
-    - assignment/images/diagram.png
-
-    Blocks dangerous paths like:
-    - ../secret.txt
-    - C:/Windows/system32
-    - /absolute/path
-    """
-    if not raw_path:
-        return Path()
-
-    normalized = raw_path.strip().replace("\\", "/")
-
-    if normalized in {"", "."}:
-        return Path()
-
-    path = Path(normalized)
-
-    if path.is_absolute():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Absolute paths are not allowed",
-        )
-
-    parts = []
-
-    for part in normalized.split("/"):
-        part = part.strip()
-
-        if part in {"", "."}:
-            continue
-
-        if part == "..":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Path traversal is not allowed",
-            )
-
-        if any(char in part for char in '<>:"|?*'):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid path segment: {part}",
-            )
-
-        parts.append(part)
-
-    return Path(*parts)
-
-
-def get_safe_path(user_dir: Path, raw_path: Optional[str]) -> Path:
-    relative_path = clean_relative_path(raw_path)
-    target_path = (user_dir / relative_path).resolve()
-
-    if user_dir != target_path and user_dir not in target_path.parents:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid path",
-        )
-
-    return target_path
-
 
 @router.get("/")
 def list_directory(
@@ -190,7 +118,8 @@ def create_folder(
         )
 
     folder_path.mkdir(parents=True, exist_ok=True)
-
+    set_ownership(folder_path, username)
+    
     return {
         "success": True,
         "message": "Folder created successfully",
@@ -219,6 +148,7 @@ async def upload_file(
         )
 
     upload_dir.mkdir(parents=True, exist_ok=True)
+    set_ownership(upload_dir, username)
 
     filename = file.filename or ""
 
@@ -252,6 +182,8 @@ async def upload_file(
 
     finally:
         await file.close()
+    
+    set_ownership(destination, username)
 
     return {
         "success": True,

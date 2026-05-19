@@ -3,12 +3,10 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-import tempfile
 from pathlib import Path
 
 from fastapi import HTTPException
-
-from ..api.endpoints.files import get_user_storage_dir
+from .file import get_user_storage_dir
 
 SBATCH_ID_RE = re.compile(r"Submitted batch job (\d+)")
 SBATCH_TIMEOUT_SECONDS = 60
