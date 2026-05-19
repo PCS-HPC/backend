@@ -1,6 +1,7 @@
 from bson import ObjectId
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
+from typing import Literal
 from fastapi import HTTPException, status
 
 def _get_user_by_username(db: Database, username: str) -> dict:
@@ -26,8 +27,10 @@ def _require_credit_balance(user: dict) -> int:
 def _record_transaction(
     db: Database,
     *,
+    adminUserId: str | None,
+    adminName: str,
     user: dict,
-    operation: str,
+    operation: Literal["deduct", "add"],
     amount: float,
     old_balance: int,
     new_balance: int,
@@ -37,6 +40,8 @@ def _record_transaction(
     db["credit_transactions"].insert_one({
         "targetUserId":      user["_id"],
         "targetUsername":    user.get("username"),
+        "adminUserId": adminUserId,
+        "adminUsername": adminName,
         "operation":         operation,
         "amount":            amount,
         "oldCreditBalance":  old_balance,
@@ -90,6 +95,7 @@ def charge_credits(db: Database, username: str, amount: float, job_id: str) -> d
         )
         _record_transaction(
             db,
+            adminUsername="ai",
             user=user,
             operation="charge",
             amount=amount,
@@ -132,6 +138,7 @@ def refund_credits(db: Database, username: str, amount: float, job_id: str) -> d
         )
         _record_transaction(
             db,
+            adminUsername="ai",
             user=user,
             operation="refund",
             amount=amount,

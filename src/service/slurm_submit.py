@@ -74,5 +74,54 @@ def generate_slurm_script(params: SlurmJobParams) -> str:
     lines.append("") # Empty line before the main script body
     lines.append(params.body)
     
-    print("\n".join(lines))
     return "\n".join(lines)
+
+# credit calc
+def parse_memory_to_gb(mem_str: str) -> float:
+    """Convert Slurm memory strings (e.g., 500M, 16G, 1T) to gigabytes (GB)."""
+    unit = mem_str[-1]
+    value = float(mem_str[:-1])
+    
+    if unit == "K":
+        return value / (1024 * 1024)
+    elif unit == "M":
+        return value / 1024
+    elif unit == "G":
+        return value
+    elif unit == "T":
+        return value * 1024
+    return value
+
+def parse_walltime_to_hours(walltime_str: str) -> float:
+    """Convert HH:MM:SS walltime format to total hours as a float."""
+    parts = walltime_str.split(":")
+    hours = int(parts[0])
+    minutes = int(parts[1])
+    seconds = int(parts[2])
+    return hours + (minutes / 60.0) + (seconds / 3600.0)
+
+def calculate_job_cost(params: SlurmJobParams) -> float:
+    """
+    Calculate total credit cost based on requested resources and walltime.
+    Rates: 1 GPU = 10 cr/hr, 1 CPU = 1 cr/hr, 1 GB RAM = 0.1 cr/hr
+    """
+    hours = parse_walltime_to_hours(params.walltime)
+
+    # Slurm allocations logic
+    total_gpus = params.nodes * params.gpus
+
+    # Determine total tasks assigned across nodes
+    if params.ntasksPerNode:
+        total_tasks = params.nodes * params.ntasksPerNode
+    else:
+        total_tasks = params.ntasks
+    total_cpus = total_tasks * params.cpus
+
+    # Slurm memory (--mem) is typically allocated per node
+    total_ram_gb = params.nodes * parse_memory_to_gb(params.memory)
+    
+    # Compute hourly rate and multiply by duration
+    hourly_rate = (total_gpus * 10.0) + (total_cpus * 1.0) + (total_ram_gb * 0.1)
+    total_cost = hourly_rate * hours
+    
+    return round(total_cost, 4)

@@ -4,8 +4,9 @@ import json
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from ...service.slurm_submit import submit_job, generate_slurm_script
+from ...service.slurm_submit import submit_job, generate_slurm_script, calculate_job_cost
 from ...service.file import batch_upload
+from ...service.credits import _record_transaction
 from .auth import get_current_user
 
 router = APIRouter()
@@ -59,6 +60,24 @@ async def submit(
 
     # _validate_files(files)
 
+    # 2. Calculate job credit cost
+    job_cost = calculate_job_cost(params)
+    old_balance = current_user.get("creditBalance", 0)
+
+    # 3. Guard clause for insufficient balance
+    if old_balance < job_cost:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Insufficient credits. Required: {job_cost:.2f}, Available: {old_balance:.2f}"
+        )
+
+    # 4. Deduct the credits from user account
+    new_balance = old_balance - job_cost
+    db["users"].update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"creditBalance": new_balance}}
+    )
+
     staged: list[dict] = []
     if files:
         staged = await batch_upload(files, username)
@@ -69,14 +88,20 @@ async def submit(
     # Submit the generated script
     job_id = submit_job(script=script, username=username)
 
-    _record_submission(db, job_id=job_id, username=username, script=script)
+    _record_transaction(
+        db=db,
+        adminUserId=None,
+        adminName="SYSTEM",
+        user=current_user,
+        operation="deduct",
+        amount=job_cost,
+        old_balance=old_balance,
+        new_balance=new_balance,
+        job_id=str(job_id)
+    )
 
     return SubmitResponse(
         job_id=job_id,
         message=f"Submitted batch job {job_id}",
         staged_files=[f["relative_path"] for f in staged],
     )
-
-def _record_submission(db, *, job_id: int, username: str, script: str) -> None:
-    # TODO: mongodb
-    pass
