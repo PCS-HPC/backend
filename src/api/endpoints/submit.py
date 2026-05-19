@@ -19,7 +19,7 @@ class SlurmJobParams(BaseModel):
     jobName: str = Field(..., description="Name of the job")
     nodes: int = Field(default=1, ge=1, description="Number of nodes")
     cpus: int = Field(default=1, ge=1, description="CPUs per task")
-    gpus: int = Field(default=0, ge=0, description="GPUs requested")
+    gpus: int = Field(default=0, ge=0, description="GPUs per node")
     memory: str = Field(default="1G", pattern=r"^\d+[KMGT]$", description="e.g., 8G, 500M")
     walltime: str = Field(default="01:00:00", pattern=r"^\d{2}:\d{2}:\d{2}$", description="HH:MM:SS format")
     output: str | None = None

@@ -2,6 +2,9 @@ from pathlib import Path
 from fastapi import UploadFile, HTTPException, status
 import os
 import pwd
+import stat
+
+EXECUTABLE_EXTENSIONS = {".out", ".x", ".bin", ""}  # "" = no extension, like your pi_reduce
 
 raw_storage_root = os.getenv("LOCAL_STORAGE_DIR", "storage")
 STORAGE_ROOT = Path(os.path.expandvars(os.path.expanduser(raw_storage_root))).resolve()
@@ -96,6 +99,12 @@ async def batch_upload(files: list[UploadFile], username) -> list[dict]:
 
         await file.close()
         set_ownership(destination, username)
+
+        # Set executable bit for binary files
+        # temp fix: proper fix later
+        if destination.suffix in EXECUTABLE_EXTENSIONS:
+            current = destination.stat().st_mode
+            destination.chmod(current | stat.S_IXUSR | stat.S_IXGRP)
 
         uploaded.append({
             "name": destination.name,

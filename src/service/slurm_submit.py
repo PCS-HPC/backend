@@ -52,12 +52,13 @@ def _run_sbatch(script: str, username: str, work_dir: str) -> int:
 
 def generate_slurm_script(params: SlurmJobParams) -> str:
     lines = ["#!/bin/bash"]
+    lines.append(f"#SBATCH --get-user-env")
     lines.append(f"#SBATCH --job-name={params.jobName}")
     lines.append(f"#SBATCH --nodes={params.nodes}")
     lines.append(f"#SBATCH --cpus-per-task={params.cpus}")
     
     if params.gpus > 0:
-        lines.append(f"#SBATCH --gpus={params.gpus}")
+        lines.append(f"#SBATCH --gpus-per-node={params.gpus}")
         
     lines.append(f"#SBATCH --mem={params.memory}")
     lines.append(f"#SBATCH --time={params.walltime}")
