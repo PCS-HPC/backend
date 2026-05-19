@@ -57,12 +57,10 @@ def generate_slurm_script(params: SlurmJobParams) -> str:
     lines.append(f"#SBATCH --nodes={params.nodes}")
     lines.append(f"#SBATCH --ntasks={params.ntasks}")
     if params.ntasksPerNode:
-        lines.append(f"#SBATCH --ntasks-per-node={params.ntasksPerNode}")
+        lines.append(f"#SBATCH --ntasks-per-node={params.ntasksPerNode}") 
     lines.append(f"#SBATCH --cpus-per-task={params.cpus}")
-    lines.append(f"#SBATCH --cpus-per-task={params.cpus}")
-    
+
     if params.gpus > 0:
-        print('gpu allocated')
         lines.append(f"#SBATCH --gpus-per-node={params.gpus}")
         
     lines.append(f"#SBATCH --mem={params.memory}")
@@ -76,4 +74,5 @@ def generate_slurm_script(params: SlurmJobParams) -> str:
     lines.append("") # Empty line before the main script body
     lines.append(params.body)
     
+    print("\n".join(lines))
     return "\n".join(lines)
