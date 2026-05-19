@@ -18,6 +18,8 @@ class SubmitResponse(BaseModel):
 class SlurmJobParams(BaseModel):
     jobName: str = Field(..., description="Name of the job")
     nodes: int = Field(default=1, ge=1, description="Number of nodes")
+    ntasks: int = Field(default=1, ge=1)
+    ntasksPerNode: int | None = Field(default=None, ge=1)
     cpus: int = Field(default=1, ge=1, description="CPUs per task")
     gpus: int = Field(default=0, ge=0, description="GPUs per node")
     memory: str = Field(default="1G", pattern=r"^\d+[KMGT]$", description="e.g., 8G, 500M")
