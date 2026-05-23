@@ -1,53 +1,59 @@
-# MONHPC Frontend
+# MONHPC Backend
 
-> React/TypeScript web interface for the MCS-17 HPC cluster — part of a Final Year Project building a full-stack, AI-integrated high-performance computing platform.
+> FastAPI backend for the MCS-17 HPC cluster web platform — part of a Final Year Project building a full-stack, AI-integrated high-performance computing system.
 
 ## Overview
 
-This is the user-facing web application for MONHPC. It provides a unified interface for submitting and monitoring Slurm jobs, managing files on the BeeGFS shared filesystem, and interacting with the cluster's AI chat agent — all behind a JWT-authenticated session.
-
-Built with **TanStack Start** (React 19, file-based routing, SSR-capable), **Tailwind CSS v4**, and **Bun** as the runtime and package manager.
+This is the REST API server that sits between the MONHPC frontend and the cluster infrastructure. It handles authentication, Slurm job management, BeeGFS file operations, AI chat integration, and a credit system for resource accounting — all built with **FastAPI** on **Python 3.12**.
 
 ---
 
 ## Features
 
-### Dashboard
-- Live Slurm job table with status filtering (Running, Pending, Completed, Failed, Cancelled)
-- Per-job stdout/stderr viewer with inline output preview
-- Job stats summary (total jobs, breakdown by status and type)
-- Credit balance display per job
+### Authentication & Sessions
+- JWT-based login with `argon2` password hashing
+- Idle session timeout with activity tracking (configurable, default 30 min)
+- Token blacklisting on logout (TTL-indexed in MongoDB)
+- Monash University email username derivation (`@student.monash.edu` → 8-char student ID)
+- Role-based access (`student` / `admin`)
+
+### Slurm Job Management
+- List all jobs for a user (or all users if admin) via `sacct`
+- Filter by status: Running, Pending, Completed, Failed, Cancelled
+- Per-job detail: CPUs, GPUs, memory requested/used, runtime, exit code, node list
+- stdout/stderr preview (last 200 lines) and full file download
+- Uses `sacct --json` for accurate expanded output/error paths
 
 ### Job Submission
-- Multi-step wizard: choose mode → configure script in editor → confirm → submit
-- Monaco-style script editor with syntax highlighting
-- Confirmation step showing resource summary before submission
+- Multi-field Slurm script generation (nodes, tasks, CPUs, GPUs, memory, walltime)
+- File staging: upload supporting files to the user's BeeGFS directory before submission
+- Credit cost calculation and balance check before `sbatch`
+- Credit deduction and transaction recording on successful submission
+
+### BeeGFS File Management
+- Per-user directory rooted at `LOCAL_STORAGE_DIR/<username>`
+- List directory contents (files + folders, sorted)
+- Upload files with optional overwrite
+- Create folders (with ownership set via `chown` to the OS user)
+- Download files
+- Delete files or folders (recursive delete requires explicit flag)
+- Path traversal protection (`..`, absolute paths, and reserved characters all rejected)
 
 ### AI Chat
-- Conversational interface backed by a LangGraph AI agent
-- Safety-checked responses via Llama Guard 4
-- Supports attaching files (up to 10 per message) as HPC uploads or chat context
-- Conversation history with sidebar navigation between past chats
-- Context window usage indicator per conversation
-- LaTeX math rendering (KaTeX) and Markdown with syntax highlighting
+- Proxies requests to the NemoClaw LangGraph AI cluster (`AI_CLUSTER_URL`)
+- Conversation and dialogue history stored in MongoDB
+- Context window management: token estimation via Gemma 4 tokenizer API, automatic summarization when the context approaches 90k tokens
+- Unsafe messages returned immediately without being saved
+- File attachments passed as BeeGFS paths to the AI agent
 
-### Storage (BeeGFS File Manager)
-- Browse, upload, download, and delete files/folders on the user's BeeGFS directory (`/mnt/beegfs/user/<user_id>`)
-- Path breadcrumb navigation with alias to `/` for the user root
-- Quick Look preview modal for text/code/image files
-- Multi-select with bulk download (zip) and bulk delete
-- Recursive folder upload preserving directory structure
-- Right-click context menu with context-aware actions
-- High-friction deletion modal to prevent accidental data loss
+### Admin
+- User listing, creation, role and status updates
+- Credit balance management and transaction history
 
-### Admin Panel
-- User management (create, view, update roles and status)
-- Credit balance management
-
-### Auth
-- JWT-based login with token stored in `localStorage`
-- Auto-redirect on session expiry
-- Global auth guard in root layout — unauthenticated users see only the login screen
+### Observability
+- Prometheus metrics endpoint (`/metrics`) via custom `PrometheusMiddleware`
+- OpenTelemetry tracing with OTLP export (`OTLP_ENDPOINT`)
+- Structured JSON logging via `log_config.json`
 
 ---
 
@@ -55,150 +61,176 @@ Built with **TanStack Start** (React 19, file-based routing, SSR-capable), **Tai
 
 | Layer | Technology |
 | :--- | :--- |
-| Framework | [TanStack Start](https://tanstack.com/start) (React 19) |
-| Routing | TanStack Router (file-based) |
-| Styling | Tailwind CSS v4 |
-| Animations | Motion (Framer Motion v12) |
-| Markdown | react-markdown + remark-gfm + remark-math + KaTeX |
-| Syntax highlighting | react-syntax-highlighter |
-| Icons | Lucide React |
-| Linting/Formatting | Biome |
-| Runtime & Package Manager | Bun |
-| Build tool | Vite 8 |
-| Testing | Vitest + Testing Library |
+| Framework | FastAPI |
+| Python version | 3.12 |
+| Database | MongoDB (via PyMongo) |
+| Auth | JWT (`PyJWT`) + Argon2 password hashing |
+| LDAP | `ldap3` (OpenLDAP integration, optional) |
+| HTTP client | `httpx` (async) |
+| Observability | OpenTelemetry + Prometheus |
+| Container | Docker / Docker Compose |
+
+---
+
+## Prerequisites
+
+- Python 3.12
+- A running MongoDB instance
+- Access to the Slurm cluster (`sacct`, `sbatch` available on the host)
+- BeeGFS mounted and accessible at the configured storage path
+- *(Optional)* OpenLDAP for centralised user directory
+
+---
+
+## Environment Variables
+
+Create a `.env` file in the project root:
+
+```env
+# MongoDB
+MONGO_URI=mongodb://localhost:27017
+MONGO_DB_NAME=monhpc
+
+# JWT
+JWT_SECRET_KEY=your-secret-key-here
+JWT_ALGORITHM=HS256
+JWT_EXPIRE_MINUTES=1440
+
+# Session
+SESSION_IDLE_TIMEOUT_MINUTES=30
+
+# AI cluster
+AI_CLUSTER_URL=http://<ai-node-ip>:<port>
+
+# File storage (BeeGFS mount point for user files)
+LOCAL_STORAGE_DIR=/mnt/beegfs/user
+
+# OpenLDAP (set to 'true' to enable)
+LDAP_ACTIVATED=false
+
+# Observability
+APP_NAME=monhpc-backend
+OTLP_ENDPOINT=http://localhost:4317
+```
 
 ---
 
 ## Getting Started
 
-### Prerequisites
-
-- [Bun](https://bun.sh) installed (`>= 1.3`)
-- A running MONHPC backend (FastAPI) — set the URL via environment variable
-
-### Environment Variables
-
-Create a `.env` file at the project root:
-
-```env
-VITE_API_BASE_URL=http://127.0.0.1:8000
-```
-
-Defaults to `http://127.0.0.1:8000` if not set.
-
-### Install & Run
+### Local Development
 
 ```bash
-bun install
-bun --bun run dev
+# Create and activate a virtual environment
+python -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run the development server
+fastapi dev src/main.py
 ```
 
-The app runs on [http://localhost:3000](http://localhost:3000) by default.
+The API will be available at `http://127.0.0.1:8000`.  
+Interactive docs: `http://127.0.0.1:8000/docs`
 
-### Build for Production
+### Docker
 
 ```bash
-bun --bun run build
+docker compose up --build
 ```
 
-### Preview Production Build
-
-```bash
-bun --bun run preview
-```
+The container exposes port `8000` and picks up environment variables from your `.env` file.
 
 ---
 
-## Testing
+## API Reference
 
-```bash
-bun --bun run test
-```
+All routes are prefixed with `/api`.
 
-Uses [Vitest](https://vitest.dev/) with jsdom and Testing Library.
-
----
-
-## Linting & Formatting
-
-This project uses [Biome](https://biomejs.dev/) for linting and formatting:
-
-```bash
-bun --bun run lint      # Lint
-bun --bun run format    # Format
-bun --bun run check     # Lint + format check combined
-```
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/auth/login` | Login — returns JWT access token |
+| `POST` | `/api/auth/logout` | Logout — blacklists the current token |
+| `GET` | `/api/auth/me` | Get current authenticated user |
+| `POST` | `/api/users/` | Register a new user |
+| `GET` | `/api/slurm/jobs` | List Slurm jobs (filtered by status/days) |
+| `GET` | `/api/slurm/jobs/{job_id}` | Get a single job's details |
+| `GET` | `/api/slurm/stats` | Aggregate job stats |
+| `GET` | `/api/slurm/jobs/{job_id}/output` | Preview last 200 lines of stdout |
+| `GET` | `/api/slurm/jobs/{job_id}/error` | Preview last 200 lines of stderr |
+| `GET` | `/api/slurm/jobs/{job_id}/output/download` | Download full stdout file |
+| `GET` | `/api/slurm/jobs/{job_id}/error/download` | Download full stderr file |
+| `POST` | `/api/jobs/submit` | Submit a Slurm job (with optional file upload) |
+| `GET` | `/api/files/` | List user's BeeGFS directory |
+| `POST` | `/api/files/folders` | Create a folder |
+| `POST` | `/api/files/upload` | Upload a file |
+| `GET` | `/api/files/download` | Download a file |
+| `DELETE` | `/api/files/` | Delete a file or folder |
+| `GET` | `/api/ai/convo` | List user's AI conversations |
+| `POST` | `/api/ai/convo` | Start a new AI conversation |
+| `GET` | `/api/ai/convo/{convo_id}` | Get conversation + dialogue history |
+| `POST` | `/api/ai/convo/{convo_id}` | Continue an existing conversation |
+| `DELETE` | `/api/ai/convo/{convo_id}` | Delete a conversation |
+| `GET` | `/api/ai/convo/{convo_id}/context` | Get current context window usage |
+| `GET` | `/api/admin/users` | List all users (admin only) |
+| `GET` | `/api/credits/` | Get credit transaction history |
+| `GET` | `/metrics` | Prometheus metrics scrape endpoint |
 
 ---
 
 ## Project Structure
 
 ```
-frontend-new/
-├── api/
-│   └── server.js                  # Lightweight local API dev server
-├── public/
-│   ├── favicon.svg
-│   └── manifest.json
+backend-main/
 ├── src/
-│   ├── lib/                       # API client modules
-│   │   ├── api.ts                 # Base fetch wrapper + ApiError
-│   │   ├── auth.ts                # Login, logout, session management
-│   │   ├── chat.ts                # AI conversation API
-│   │   ├── files.ts               # BeeGFS file manager API
-│   │   ├── jobs.ts                # Slurm job API
-│   │   ├── submit.ts              # Job submission API
-│   │   └── admin.ts               # Admin user management API
-│   ├── components/
-│   │   └── Sidebar.tsx            # Collapsible nav (Chat, Dashboard, Storage)
-│   ├── routes/
-│   │   ├── __root.tsx             # Root layout + global auth guard
-│   │   ├── index.tsx              # Dashboard (job list + stats)
-│   │   ├── login.tsx              # Login page
-│   │   ├── chat.tsx               # Chat route wrapper
-│   │   ├── chat/
-│   │   │   ├── index.tsx          # New conversation / landing
-│   │   │   └── $convoId.tsx       # Active conversation view
-│   │   ├── submit.tsx             # Job submission wizard
-│   │   ├── submit/
-│   │   │   ├── -submit.types.ts
-│   │   │   └── step/
-│   │   │       ├── -ModeStep.tsx
-│   │   │       ├── -EditorStep.tsx
-│   │   │       ├── -ConfirmStep.tsx
-│   │   │       └── -SuccessStep.tsx
-│   │   ├── storage.tsx            # BeeGFS file manager
-│   │   └── admin.tsx              # Admin panel
-│   ├── router.tsx                 # Router setup
-│   ├── routeTree.gen.ts           # Auto-generated route tree
-│   └── styles.css                 # Global styles + Tailwind import
-├── biome.json
-├── vite.config.ts
-├── tsconfig.json
-├── vercel.json                    # Vercel deployment config
-└── package.json
+│   ├── main.py                    # App entry point, middleware, lifespan (MongoDB + LDAP init)
+│   ├── utils.py                   # PrometheusMiddleware, OTLP setup
+│   ├── api/
+│   │   ├── api.py                 # Router registration
+│   │   └── endpoints/
+│   │       ├── auth.py            # Login, logout, JWT creation/validation, session management
+│   │       ├── users.py           # User registration
+│   │       ├── admin.py           # Admin user management
+│   │       ├── ai.py              # AI conversation endpoints
+│   │       ├── ai_credits.py      # Credit transaction endpoints
+│   │       ├── files.py           # BeeGFS file manager endpoints
+│   │       ├── slurm.py           # Slurm job query endpoints
+│   │       └── submit.py          # Job submission endpoint
+│   └── service/
+│       ├── ai.py                  # AI service: prompt building, context management, summarization
+│       ├── slurm.py               # sacct wrapper: job listing, parsing, formatting
+│       ├── slurm_submit.py        # sbatch wrapper: script generation, job submission
+│       ├── file.py                # File service: safe path resolution, uploads, ownership
+│       ├── ldap.py                # OpenLDAP integration
+│       └── credits.py             # Credit calculation and transaction recording
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+├── log_config.json                # Uvicorn structured logging config
+├── example_job.json               # Example sacct --json output (for reference)
+└── .python-version                # Pins Python 3.12
 ```
 
 ---
 
-## API Integration
+## MongoDB Collections
 
-All API calls go through `src/lib/api.ts`, which attaches the JWT `Authorization` header automatically from `localStorage`. The base URL is configured via `VITE_API_BASE_URL`.
-
-Key API modules:
-
-| Module | Backend Prefix | Purpose |
-| :--- | :--- | :--- |
-| `auth.ts` | `/api/auth` | Login, logout, register |
-| `jobs.ts` | `/api/slurm` | List/get/output Slurm jobs |
-| `chat.ts` | `/api/ai` | AI conversations and dialogues |
-| `files.ts` | `/api/files` | BeeGFS directory + file operations |
-| `admin.ts` | `/api/users` | User administration |
+| Collection | Purpose |
+| :--- | :--- |
+| `users` | User accounts (email, passwordHash, role, status, creditBalance) |
+| `sessions` | Active JWT sessions with idle timeout tracking |
+| `blacklisted_tokens` | Logged-out tokens (TTL index on `expiresAt`) |
+| `conversations` | AI conversation metadata (title, owner, summary) |
+| `dialogues` | Individual AI chat messages per conversation |
+| `slurm_jobs` | Credit amounts linked to submitted Slurm job IDs |
+| `transactions` | Credit deduction/addition audit log |
 
 ---
 
-## Deployment
+## Notes
 
-A `vercel.json` is included for deployment on Vercel. Set `VITE_API_BASE_URL` in the Vercel project environment variables to point to your backend.
-
-For other platforms, the standard Vite build output in `dist/` can be served by any static host or Node server.
+- The `requirements.txt` only pins `httpx` and a few core packages — run `pip freeze > requirements.txt` after adding new dependencies.
+- CORS is currently set to allow all origins (`*`). Restrict this for production.
+- The `LDAP_ACTIVATED` flag controls whether the LDAP connection is initialised at startup. If disabled, user records are managed through MongoDB directly.
+- Credit costs are calculated in `service/credits.py` based on requested CPUs, GPUs, and walltime.
