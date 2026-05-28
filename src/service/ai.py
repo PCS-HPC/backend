@@ -1,209 +1,108 @@
-# wow derek, your ai has so much functionalities!
-# ok not really i think im overcomplicating things
-import requests
 import os
-import uuid
-from datetime import datetime
-from typing import Literal
 import httpx
+from typing import Literal, Optional, Dict, Any, Tuple, List # Fixed: Added List
 
-AI_CLUSTER_URL = os.getenv('AI_CLUSTER_URL')
-
-def get_max_token():
-    # Derek Feedback:
-    # For Gemma 4 we got 128k token context length. whenever user's previous prompt's convo bloats up to 90k tokens 
-    # (check using my tokenizer API), you just call summarise and it will reduce down to around 64k token context 
-    # length and put in
-    return 90000
-
-async def estimate_token(total_context):
-    """
-    Count tokens in a conversation block using the Gemma 4 vLLM tokenizer.
-
-    Args:
-        total_context (str): The <previous_prompts_and_response>...</previous_prompts_and_response> block.
-
-    Returns:
-        int: Token count for the conversation block.
-
-    Raises:
-        requests.HTTPError: On non-2xx responses.
-    """
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{AI_CLUSTER_URL}/api/v1/context/token-count",
-            json={"conversation_block": total_context},
-            timeout=30,
-        )
-        response.raise_for_status()
-        return response.json()["token_count"]
-
-def get_conversation_history(convo_id, db, after_id=None):
-    query = {"conversation_id": convo_id}
-    if after_id:
-        # only fetch dialogues after the summarization cutoff
-        # i sure do hope _id is monotonically increasing 
-        query["_id"] = {"$gt": after_id}  
-
-    dialogues = list(
-        db.dialogues.find(query).sort("timestamp", 1)
-    )
-
-    return dialogues
-
-def save_convo(
-    db,
-    content: str,
-    sent_by: Literal["user", "ai"],  # "user" or "ai"
-    user_id: str,
-    conversation_id: str = None,
-    title: str = None,
-    files: list[dict] | None = None,
-) -> None:
-    if conversation_id is None:
-        conversation_id = str(uuid.uuid4())
-        db.conversations.insert_one({"_id": conversation_id, "title": title, "owner": user_id})
-
-    db.dialogues.insert_one(
-        {
-            "conversation_id": conversation_id,
-            "content": content,
-            "sent_by": sent_by,
-            "timestamp": datetime.utcnow(),
-            "files": files or [],
-        }
-    )
-
-    return conversation_id
-
-def build_prompt(summary, context, new_message, files: list[dict] | None = None):
-    history_block = ""
-    history_lines = [f"summarised={summary}\n"] if summary and len(summary) else []
-
-    for dialogue in context:
-        if dialogue['sent_by'] == 'user':
-            content = dialogue['content']
-            if dialogue.get('files'):
-                file_refs = "\n".join(f'{f["name"]}: {f["path"]}' for f in dialogue['files'])
-                content = f"{content}\n\nFiles added can be located in:\n{file_refs}"
-            history_lines.append(f"prompt={content}")
-        elif dialogue['sent_by'] == 'ai':
-            history_lines.append(f"response={dialogue['content']}")
-
-    history_block = (
-        "<previous_prompts_and_response>\n"
-        + "\n".join(history_lines)
-        + "\n</previous_prompts_and_response>\n\n"
-    )
-
-    if files:
-        file_refs = "\n".join(f'{f["name"]}: {f["path"]}' for f in files)
-        new_message = f"{new_message}\n\nFiles added can be located in:\n{file_refs}"
-
-    return (
-        f"{history_block}"
-        f"<current_prompt>\n{new_message}\n</current_prompt>"
-    )
+# This should point to your Prompt Router node (e.g., http://192.168.10.7:8005)
+AI_CLUSTER_URL = os.getenv('AI_CLUSTER_URL', 'http://192.168.10.7:8005')
 
 async def get_chat_completion(
-    context, 
-    new_message, 
-    user_id, 
-    user_name,
-    user_role,
-    db = None,
-    conversation_id: str = None,
-    title: str = None,
-    summary: str = "",
-    files: list[dict] | None = None,  # <-- add this
-):
+    prompt: str, 
+    files: list, # Explicitly typing this
+    user_id: str, # This must be the LDAP/SLURM username
+    user_role: Literal["user", "admin"] = "user",
+    session_id: Optional[str] = None,
+) -> Tuple[Dict[str, Any], Optional[str]]:
     """
-        Sends a new message to the NemoClaw LangGraph API, incorporating prior
-        context using structured XML-style tags.
-
-        Args:
-            context:     List of prior turns, each a dict with keys:
-                        - "prompt"   (str) the user's message
-                        - "response" (str) the assistant's final_response
-                        - "requires_clarification" (bool, optional)
-            new_message: The new user prompt to send.
-            user_id: username of submitter
-            user_role: "user" or "admin" (default: "user").
-
-        Returns:
-            The full JSON response dict from the API:
-            {
-                "is_safe":                bool,
-                "requires_clarification": bool,
-                "final_response":         str,
-                "execution_data":         dict | None,
-                "safety_hazard":          str | None,
-            }
-
-        Raises:
-            requests.HTTPError: On non-2xx responses.
-            RuntimeError:       If the prompt is flagged as unsafe.
+    Sends the latest user prompt to the NemoClaw Prompt Router.
+    Handles session tracking dynamically via session_id.
     """
-    prompt = build_prompt(summary, context, new_message, files=files)
 
+    # Fixed: Changed uploaded_files to files to match the parameter name
+    if files:
+        file_refs = "\n".join(f'{f["name"]}: {f["path"]}' for f in files)
+        prompt = f"{prompt}\n\nFiles added can be located in:\n{file_refs}"
+    
     payload = {
-        "user_id": user_name,
+        "user_id": user_id,
         "user_role": user_role,
         "prompt": prompt,
+        "session_id": session_id
     }
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{AI_CLUSTER_URL}/api/v1/chat", json=payload, timeout=420
+            f"{AI_CLUSTER_URL}/api/v1/chat", 
+            json=payload, 
+            timeout=420  # Keeping your robust timeout for deep execution tasks
         )
         response.raise_for_status()
+        result = response.json() # Fixed: Read JSON inside the context block safely
+    
+    # Extract the stable session_id returned by the router
+    returned_session_id = result.get("session_id")
 
-    result = response.json()
+    return result, returned_session_id
 
-    if not result.get("is_safe"):
-        return result, conversation_id
 
-    if db is not None:
-        conversation_id = save_convo(
-            db, content=new_message, sent_by="user", user_id=user_id,
-            conversation_id=conversation_id, title=title, files=files
-        )
-
-        save_convo(
-            db, content=result.get("final_response", ""), sent_by="ai", user_id=user_id,
-            conversation_id=conversation_id, title=title,
-        )
-
-    return result, conversation_id
-
-async def summarize_context(previous_summary: str, context: list[dict]):
+async def get_user_history_adapter(user_name: str) -> List[Dict[str, Any]]:
     """
-    Condenses a conversation context list into a single summarized prompt
-    string, suitable for injecting into a fresh request when the context
-    window grows too large.
-
-    Uses the NemoClaw API itself (Hermes/Gemma 4 via the Summarizer node)
-    to produce the summary by asking it to compress the history.
-
-    Args:
-        context: List of prior turns with "prompt" and "response" keys.
-
-    Returns:
-        A plain-text summary of the conversation so far.
+    Fetches history from the Prompt Router and transforms it into the old
+    List[dict] shape that your sidebar UI currently loops over.
     """
-    if not context:
-        return previous_summary, None
-
-    transcript = build_prompt(previous_summary, context, "")
-
     async with httpx.AsyncClient() as client:
-        response = requests.post(
-            f"{AI_CLUSTER_URL}/api/v1/context/summarize",
-            json={"conversation_block": transcript},
-            timeout=60,
-        )
+        response = await client.get(f"{AI_CLUSTER_URL}/api/v1/history/{user_name}")
         response.raise_for_status()
+        data = response.json()
+        
+        # Translate Hermes schemas back into old MongoDB UI structures
+        old_format_list = []
+        for session in data.get("sessions", []):
+            old_format_list.append({
+                "_id": session["session_id"],
+                "title": session["title"] or session["preview"] or "Untitled Conversation",
+                "owner": user_name
+            })
+        return old_format_list
 
-    # cutoff marker — everything up to here is now summarized
-    last_id = context[-1]["_id"]  
-    return response.json()["conversation_block"], last_id
+
+async def get_conversation_history_adapter(convo_id: str, user_name: str) -> Dict[str, Any]:
+    """
+    Fetches specific session messages and formats them into the old
+    {"conversation": ..., "dialogues": ...} contract.
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"{AI_CLUSTER_URL}/api/v1/history/{user_name}/{convo_id}")
+        response.raise_for_status()
+        data = response.json()
+
+        messages = data.get("messages", [])
+        
+        # Translate message keys: role -> sent_by ('assistant' -> 'ai')
+        dialogues = []
+        for msg in messages:
+            dialogues.append({
+                "sent_by": "user" if msg["role"] == "user" else "ai",
+                "content": msg["content"],
+                "timestamp": msg["timestamp"]
+            })
+
+        # Dynamically infer a title if none exists
+        convo_title = messages[0]["content"][:60] + "..." if messages else "Conversation"
+
+        return {
+            "conversation": {
+                "_id": convo_id,
+                "title": convo_title
+            },
+            "dialogues": dialogues
+        }
+
+
+async def delete_session(user_name: str, session_id: str) -> Dict[str, Any]:
+    """
+    Triggers session deletion via the Prompt Router.
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.delete(f"{AI_CLUSTER_URL}/api/v1/history/{user_name}/{session_id}")
+        response.raise_for_status()
+        return response.json()
