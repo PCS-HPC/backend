@@ -75,7 +75,7 @@ async def continue_conversation(
     uploaded_files = await file.batch_upload(files, user_name) if files else []
 
     # Fixed: Unpacked return tuple and matched parameter name 'user_id'
-    result, _ = await ai.get_chat_completion(
+    result, session_id = await ai.get_chat_completion(
         prompt=message,
         files=uploaded_files,
         user_id=user_name,
