@@ -74,7 +74,7 @@ def create_access_token(user: dict):
         "sub": str(user["_id"]),
         "email": user["email"],
         "username": username,
-        "role": user.get("role", "student"),
+        "role": user.get("role", "user"),
         "jti": jti,
         "exp": jwt_expire_time,
     }
@@ -263,7 +263,7 @@ def login_user(user_login: UserLogin, request: Request):
             "id": str(user["_id"]),
             "email": user["email"],
             "username": username,
-            "role": user.get("role", "student"),
+            "role": user.get("role", "user"),
             "status": user.get("status", "active"),
             "creditBalance": get_credit_balance(user),
         },
@@ -319,7 +319,7 @@ def get_me(current_user: dict = Depends(get_current_user)):
         "id": str(current_user["_id"]),
         "email": current_user["email"],
         "username": username,
-        "role": current_user.get("role", "student"),
+        "role": current_user.get("role", "user"),
         "status": current_user.get("status", "active"),
         "creditBalance": get_credit_balance(current_user),
     }

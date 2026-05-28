@@ -47,7 +47,7 @@ def list_users(
     for user in request.app.db["users"].find(
         {
             "role": {
-                "$in": ["student", "staff"],
+                "$in": ["user", "staff"],
             },
         },
         {
@@ -58,7 +58,7 @@ def list_users(
             "id": str(user["_id"]),
             "email": user["email"],
             "username": user["username"],
-            "role": user.get("role", "student"),
+            "role": user.get("role", "user"),
             "status": user.get("status", "active"),
             "creditBalance": require_credit_balance(user),
         })
@@ -90,7 +90,7 @@ def update_user_credits(
             detail="User not found",
         )
     
-    if target_user.get("role") not in ["student", "staff"]:
+    if target_user.get("role") not in ["user", "staff"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only student or staff credit balances can be changed",

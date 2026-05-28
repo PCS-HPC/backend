@@ -15,7 +15,7 @@ This is the REST API server that sits between the MONHPC frontend and the cluste
 - Idle session timeout with activity tracking (configurable, default 30 min)
 - Token blacklisting on logout (TTL-indexed in MongoDB)
 - Monash University email username derivation (`@student.monash.edu` → 8-char student ID)
-- Role-based access (`student` / `admin`)
+- Role-based access (`user` / `admin`)
 
 ### Slurm Job Management
 - List all jobs for a user (or all users if admin) via `sacct`

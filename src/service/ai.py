@@ -7,17 +7,36 @@ AI_CLUSTER_URL = os.getenv('AI_CLUSTER_URL', 'http://192.168.10.7:8005')
 
 def sanitize_llm_response(text: str) -> str:
     """
-    Helper to catch and remove malformed thinking channel tokens 
-    leaking from the cluster router.
+    Cleans out structural tags and ensures that if an entry starts with 
+    or consists only of stray end-tags, it gets filtered properly.
     """
     if not text:
         return ""
-    # Catch the exact string from the UI and any minor syntax variations
-    bad_tokens = ["<|channel|thought <channel|>", "<|channel|>thought <channel|>"]
-    for token in bad_tokens:
-        text = text.replace(token, "")
-    return text.strip()
 
+    # 1. First, wipe a complete well-formed block out of the text
+    full_block_pattern = r"<\|\s*channel.*?channel\s*\|>"
+    text = re.sub(full_block_pattern, "", text, flags=re.DOTALL)
+
+    # 2. Handle the "orphaned end tag" scenario:
+    # If the text has an isolated end tag, match it and drop everything after it
+    # We also include a lookahead/check for a trailing '<' that often hangs around.
+    end_tag_pattern = r"(?:<\s*)?channel\s*\|>.*$"
+    text = re.sub(end_tag_pattern, "", text, flags=re.DOTALL)
+
+    # 3. Clean up loose characters left over from broken tag fragments (like that lone '<')
+    # If a message block starts with a stray '<' right before prose, snip it.
+    text = text.strip()
+    if text.startswith("<") and not text.endswith(">"):
+        text = text[1:].strip()
+
+    # 4. Normalize lingering whitespace padding
+    cleaned = re.sub(r'\s+', ' ', text).strip()
+
+    # 5. Drop the message entirely if it just says "thought" or is completely empty
+    if cleaned.lower() == "thought" or not cleaned:
+        return ""
+
+    return cleaned
 
 async def get_chat_completion(
     prompt: str, 
@@ -36,10 +55,13 @@ async def get_chat_completion(
     payload = {
         "user_id": user_id,
         "user_role": user_role,
-        "prompt": prompt,
-        "session_id": session_id
+        "prompt": prompt
     }
+    
+    if session_id:
+        payload["session_id"] = session_id
 
+    print('sending:', payload)
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"{AI_CLUSTER_URL}/api/v1/chat", 

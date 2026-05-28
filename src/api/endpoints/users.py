@@ -34,7 +34,7 @@ def parse_monash_email(email: str) -> dict:
         return {
             "email": clean_email,
             "username": username,
-            "role": "student",
+            "role": "user",
         }
 
     if clean_email.endswith("@monash.edu"):
