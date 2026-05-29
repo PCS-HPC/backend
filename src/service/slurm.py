@@ -170,12 +170,24 @@ def _parse_tres(alloc_tres: str) -> dict:
 def get_all_jobs(
     user=None, 
     days_back=7, 
-    db=None
+    db=None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
 ) -> list[dict]:
-    start = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    if start_date:
+        start = start_date
+    else:
+        start = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+
     args = ["--starttime", start, "--allusers"]
+    
+    if end_date:
+        args += ["--endtime", end_date]
     if user:
         args = ["--starttime", start, "--user", user]
+        if end_date:
+            args += ["--endtime", end_date]
+
     rows = _run_sacct(args)
     return [_normalize_row(r, db) for r in rows]
 
@@ -184,7 +196,9 @@ def get_jobs_by_status(
     status: str,
     user: Optional[str] = None,
     days_back: int = 7,
-    db=None
+    db=None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
 ) -> list[dict]:
     """
     Return jobs filtered by dashboard status label:
@@ -210,13 +224,25 @@ def get_jobs_by_status(
             f"Valid values: {list(STATUS_TO_SLURM.keys())}"
         )
  
+    if start_date:
+        start = start_date
+    else:
+        start = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+        
+    if end_date:
+        end = end_date
+    else:
+        end = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+ 
     start = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
     end = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
     args = ["--state", slurm_state]
-    if status.lower() not in ['running', 'pending']:
+
+    if status.lower() not in ['running', 'pending'] or start_date:
         args += ["--starttime", start]
-    if (status in ["completed", "failed", "cancelled"]):
+    if (status in ["completed", "failed", "cancelled"]) or end_date:
         args += ["--endtime", end]
+
     args += ["--user", user] if user else ["--allusers"]
  
     rows = _run_sacct(args)

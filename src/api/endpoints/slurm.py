@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse
 from ...service import slurm, file
 from src.api.endpoints.auth import get_current_user
 import os
+from datetime import datetime, timedelta
 
 router = APIRouter()
 
@@ -13,6 +14,8 @@ def list_jobs(
     status: str | None = Query(None),
     current_user: dict = Depends(get_current_user),
     days:   int        = Query(7),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None)
 ):
     user = current_user["username"]
     user_role = current_user["role"]
@@ -20,11 +23,39 @@ def list_jobs(
     if (user_role == "admin"):
         user = None
 
+    # --- Slurm Inclusive End-Date Offset Handler ---
+    adjusted_end_date = end_date
+    if end_date:
+        try:
+            # Parse 'YYYY-MM-DD' text into datetime object
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            # Increment by 1 day so jobs finishing *during* the day are caught
+            inclusive_dt = end_dt + timedelta(days=1)
+            # Re-serialize back to a string for the sacct query command layer
+            adjusted_end_date = inclusive_dt.strftime("%Y-%m-%d")
+        except ValueError:
+            # Fallback to the original user input if the string format is unexpected
+            pass
+
     db = request.app.db
     if status:
-        return slurm.get_jobs_by_status(status, user=user, days_back=days, db=db)
-    return slurm.get_all_jobs(user=user, days_back=days, db=db)
- 
+        return slurm.get_jobs_by_status(
+            status, 
+            user=user, 
+            days_back=days, 
+            db=db,
+            start_date=start_date,
+            end_date=adjusted_end_date # Shoved clean parameter value here
+        )
+        
+    return slurm.get_all_jobs(
+        user=user,
+        days_back=days,
+        db=db,
+        start_date=start_date,
+        end_date=adjusted_end_date # Shoved clean parameter value here
+    )
+
 @router.get("/jobs/{job_id}")
 def job_detail(
     job_id: str,
