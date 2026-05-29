@@ -117,10 +117,29 @@ async def get_conversation_history_adapter(convo_id: str, user_name: str) -> Dic
             if not cleaned_content:
                 continue
 
+            uploaded_files = []
+            file_marker = "\n\nFiles added can be located in:\n"
+
+            if file_marker in cleaned_content:
+                # Split text into user prose [0] and file metadata [1]
+                parts = cleaned_content.split(file_marker)
+                cleaned_content = parts[0].strip()  # Clear text for user bubble
+                file_block = parts[1].strip()
+                
+                # Turn text lines back into standard frontend file objects
+                for line in file_block.splitlines():
+                    if ":" in line:
+                        f_name, f_path = line.split(":", 1)
+                        uploaded_files.append({
+                            "name": f_name.strip(),
+                            "path": f_path.strip()
+                        })
+
             raw_dialogues.append({
                 "sent_by": "user" if msg["role"] == "user" else "ai",
                 "content": cleaned_content,
-                "timestamp": msg["timestamp"]
+                "timestamp": msg["timestamp"],
+                "files": uploaded_files
             })
 
         # 2. Filter Consecutive AI Responses: Keep Only the Last One
