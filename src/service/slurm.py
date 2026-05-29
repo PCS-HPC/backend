@@ -191,7 +191,6 @@ def get_all_jobs(
     rows = _run_sacct(args)
     return [_normalize_row(r, db) for r in rows]
 
- 
 def get_jobs_by_status(
     status: str,
     user: Optional[str] = None,
@@ -224,30 +223,32 @@ def get_jobs_by_status(
             f"Valid values: {list(STATUS_TO_SLURM.keys())}"
         )
  
+    # 1. Properly resolve start date without getting overwritten later
     if start_date:
         start = start_date
     else:
         start = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
         
+    # 2. Properly resolve end date without getting overwritten later
     if end_date:
         end = end_date
     else:
         end = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
  
-    start = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
-    end = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
     args = ["--state", slurm_state]
 
-    if status.lower() not in ['running', 'pending'] or start_date:
+    # 3. Use status.lower() to protect against case differences (e.g., 'Completed' vs 'completed')
+    status_lower = status.lower()
+
+    if status_lower not in ['running', 'pending'] or start_date:
         args += ["--starttime", start]
-    if (status in ["completed", "failed", "cancelled"]) or end_date:
+    if (status_lower in ["completed", "failed", "cancelled"]) or end_date:
         args += ["--endtime", end]
 
     args += ["--user", user] if user else ["--allusers"]
  
     rows = _run_sacct(args)
     return [_normalize_row(r, db) for r in rows]
- 
  
 def get_job_by_id(job_id: str, db=None) -> Optional[dict]:
     """
