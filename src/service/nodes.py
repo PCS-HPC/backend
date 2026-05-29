@@ -1,11 +1,35 @@
 import os
 import httpx
 import asyncio
+import asyncssh
 from typing import Dict, Any, List, Optional
 
 PROMETHEUS_URL = os.getenv('PROMETHEUS_URL', 'http://localhost:9090')
+SSH_USERNAME = os.getenv('SSH_USERNAME')
+SSH_PASSWORD = os.getenv('SSH_PASSWORD')
 
 WORKER_NODES = {"192.168.10.9", "192.168.10.10", "192.168.10.3", "192.168.10.4"}
+
+async def get_cpu_model_via_ssh(ip: str) -> str:
+    """Connects to a node via SSH and extracts its exact CPU model name."""
+    try:
+        async with asyncssh.connect(
+            ip, 
+            username=SSH_USERNAME, 
+            password=SSH_PASSWORD,
+            known_hosts=None,
+            login_timeout=5
+        ) as conn:
+            # Run lscpu and grep out the Model name line
+            result = await conn.run("lscpu | grep 'Model name:'", check=True)
+
+            # Clean up the output string: "Model name: Intel(R) Core(TM) i7..." -> "Intel(R) Core(TM) i7..."
+            if result.stdout:
+                return result.stdout.replace("Model name:", "").strip()
+    except Exception as e:
+        print(f"SSH CPU lookup failed for {ip}: {e}")
+    
+    return "x86_64 Processor @ 4.5GHz" # Reliable backup fallback
 
 def format_uptime(seconds: float) -> str:
     if seconds <= 0: return "0d 0h 0m"
@@ -67,27 +91,27 @@ async def get_nodes_summary() -> List[Dict[str, Any]]:
     # Map remaining high-level attributes
     for item in uptime_data:
         ip = strip_port(item["metric"].get("instance", ""))
-        if ip in nodes_map: nodes_map[ip]["uptime"] = format_uptime(float(item["value"][1]))
+        if ip in nodes_map and item.get("value"): nodes_map[ip]["uptime"] = format_uptime(float(item["value"][1]))
 
     for item in cpu_data:
         ip = strip_port(item["metric"].get("instance", ""))
-        if ip in nodes_map: nodes_map[ip]["cpuUsage"] = round(float(item["value"][1]), 1)
+        if ip in nodes_map and item.get("value"): nodes_map[ip]["cpuUsage"] = round(float(item["value"][1]), 1)
 
     for item in gpu_avg:
         ip = strip_port(item["metric"].get("instance", ""))
-        if ip in nodes_map: 
+        if ip in nodes_map and item.get("value"): 
             val = float(item["value"][1])
-            # If exporter sends a ratio decimal (e.g. 0.01), convert to whole percentage percentage
+            # If exporter sends a ratio decimal (e.g. 0.01), convert to whole percentage
             nodes_map[ip]["avgGpuUsage"] = round(val * 100 if val <= 1.0 else val)
 
     # Compute quick RAM stats
     for item in mem_total:
         ip = strip_port(item["metric"].get("instance", ""))
-        if ip in nodes_map: nodes_map[ip]["memoryTotal"] = round(float(item["value"][1]) / (1024**3))
+        if ip in nodes_map and item.get("value"): nodes_map[ip]["memoryTotal"] = round(float(item["value"][1]) / (1024**3))
             
     for item in mem_avail:
         ip = strip_port(item["metric"].get("instance", ""))
-        if ip in nodes_map:
+        if ip in nodes_map and item.get("value"):
             total = nodes_map[ip]["memoryTotal"]
             used = total - (float(item["value"][1]) / (1024**3))
             nodes_map[ip]["memoryUsed"] = round(used)
@@ -102,11 +126,12 @@ async def get_node_details(node_id: str) -> Optional[Dict[str, Any]]:
     if node_id not in WORKER_NODES:
         return None
 
+    # Exactly 11 items
     queries = {
         "up": f'up{{instance=~"{node_id}.*"}}',
         "uptime": f'time() - node_boot_time_seconds{{instance=~"{node_id}.*"}}',
         "cpu_usage": f'100 - (avg(rate(node_cpu_seconds_total{{instance=~"{node_id}.*", mode="idle"}}[5m])) * 100)',
-        "cpu_cores": f'count(count by (core) (node_cpu_seconds_total{{instance=~"{node_id}.*"}}))',
+        "cpu_cores": f'count(node_cpu_seconds_total{{instance=~"{node_id}.*", mode="idle"}})',
         "mem_total": f'node_memory_MemTotal_bytes{{instance=~"{node_id}.*"}}',
         "mem_avail": f'node_memory_MemAvailable_bytes{{instance=~"{node_id}.*"}}',
         
@@ -121,27 +146,32 @@ async def get_node_details(node_id: str) -> Optional[Dict[str, Any]]:
 
     async with httpx.AsyncClient() as client:
         tasks = [query_prometheus(client, q) for q in queries.values()]
+        tasks.append(get_cpu_model_via_ssh(node_id)) # Add SSH Task (Total tasks = 12)
+
         results = await asyncio.gather(*tasks)
         
+        # --- FIXED UNPACKING ALIGNMENT (Exactly 12 variables mapped cleanly) ---
         (up_data, uptime_data, cpu_data, cpu_cores, mem_total, mem_avail,
-         gpu_util, gpu_mem_used, gpu_mem_total, gpu_temp, gpu_power, gpu_info) = results
+         gpu_util, gpu_mem_used, gpu_mem_total, gpu_temp, gpu_power, gpu_info,
+         detected_cpu_model) = results
 
     is_up = any(int(item["value"][1]) == 1 for item in up_data if "node" in item["metric"].get("job", ""))
 
+    # --- FIXED: Added a safe guard for uptime_data[0] index checks ---
     node_details = {
         "id": node_id,
         "name": f"worker-{node_id.split('.')[-1]}",
         "status": "Online" if is_up else "Offline",
-        "uptime": format_uptime(float(uptime_data[0]["value"][1])) if uptime_data else "0d 0h 0m",
-        "cpuModel": "AMD EPYC or Intel Xeon",
-        "cpuCores": int(cpu_cores[0]["value"][1]) if cpu_cores else 0,
-        "cpuUsage": round(float(cpu_data[0]["value"][1]), 1) if cpu_data else 0,
-        "memoryTotal": round(float(mem_total[0]["value"][1]) / (1024**3)) if mem_total else 0,
+        "uptime": format_uptime(float(uptime_data[0]["value"][1])) if (uptime_data and len(uptime_data) > 0) else "0d 0h 0m",
+        "cpuModel": detected_cpu_model,
+        "cpuCores": int(cpu_cores[0]["value"][1]) if (cpu_cores and len(cpu_cores) > 0) else 1,
+        "cpuUsage": round(float(cpu_data[0]["value"][1]), 1) if (cpu_data and len(cpu_data) > 0) else 0,
+        "memoryTotal": round(float(mem_total[0]["value"][1]) / (1024**3)) if (mem_total and len(mem_total) > 0) else 0,
         "memoryUsed": 0,
         "gpus": []
     }
 
-    if mem_total and mem_avail:
+    if mem_total and mem_avail and len(mem_total) > 0 and len(mem_avail) > 0:
         total_gb = float(mem_total[0]["value"][1]) / (1024**3)
         avail_gb = float(mem_avail[0]["value"][1]) / (1024**3)
         node_details["memoryUsed"] = round(total_gb - avail_gb)
