@@ -1,7 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
 from typing import List, Dict, Any
-from ...service import nodes
-from nodes import get_nodes_summary, get_node_details
+from ...service.nodes import get_nodes_summary, get_node_details
 
 router = APIRouter()
 

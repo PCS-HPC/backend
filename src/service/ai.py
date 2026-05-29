@@ -29,8 +29,7 @@ def sanitize_llm_response(text: str) -> str:
     if text.startswith("<") and not text.endswith(">"):
         text = text[1:].strip()
 
-    # 4. Normalize lingering whitespace padding
-    cleaned = re.sub(r'\s+', ' ', text).strip()
+    cleaned = text.strip()
 
     # 5. Drop the message entirely if it just says "thought" or is completely empty
     if cleaned.lower() == "thought" or not cleaned:
@@ -70,6 +69,7 @@ async def get_chat_completion(
         )
         response.raise_for_status()
         result = response.json() 
+        print(result)
     
     # DEFENSIVE SANITIZATION: Clean real-time responses before sending to frontend
     if "final_response" in result:

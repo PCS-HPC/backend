@@ -5,7 +5,7 @@ from typing import Dict, Any, List, Optional
 
 PROMETHEUS_URL = os.getenv('PROMETHEUS_URL', 'http://localhost:9090')
 
-WORKER_NODES = {"192.168.10.11", "192.168.10.12", "192.168.10.3", "192.168.10.4"}
+WORKER_NODES = {"192.168.10.9", "192.168.10.10", "192.168.10.3", "192.168.10.4"}
 
 def format_uptime(seconds: float) -> str:
     if seconds <= 0: return "0d 0h 0m"
@@ -34,12 +34,12 @@ async def query_prometheus(client: httpx.AsyncClient, query: str) -> List[Dict]:
 async def get_nodes_summary() -> List[Dict[str, Any]]:
     """Fetches high-level metrics for all worker cards."""
     queries = {
-        "up": 'up{job="node_exporter"}',
+        "up": 'up{job="node"}',
         "uptime": 'time() - node_boot_time_seconds',
         "cpu_usage": '100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)',
         "mem_total": 'node_memory_MemTotal_bytes',
         "mem_avail": 'node_memory_MemAvailable_bytes',
-        "gpu_avg_util": 'avg by (instance) (nvidia_gpu_duty_cycle)'
+        "gpu_avg_util": 'avg by (instance) (nvidia_smi_utilization_gpu_ratio)'
     }
 
     async with httpx.AsyncClient() as client:
@@ -75,7 +75,10 @@ async def get_nodes_summary() -> List[Dict[str, Any]]:
 
     for item in gpu_avg:
         ip = strip_port(item["metric"].get("instance", ""))
-        if ip in nodes_map: nodes_map[ip]["avgGpuUsage"] = round(float(item["value"][1]))
+        if ip in nodes_map: 
+            val = float(item["value"][1])
+            # If exporter sends a ratio decimal (e.g. 0.01), convert to whole percentage percentage
+            nodes_map[ip]["avgGpuUsage"] = round(val * 100 if val <= 1.0 else val)
 
     # Compute quick RAM stats
     for item in mem_total:
@@ -99,8 +102,6 @@ async def get_node_details(node_id: str) -> Optional[Dict[str, Any]]:
     if node_id not in WORKER_NODES:
         return None
 
-    # Notice how we append filter strings like {instance=~"{node_id}.*"} 
-    # to pull metrics ONLY related to this individual machine.
     queries = {
         "up": f'up{{instance=~"{node_id}.*"}}',
         "uptime": f'time() - node_boot_time_seconds{{instance=~"{node_id}.*"}}',
@@ -110,12 +111,12 @@ async def get_node_details(node_id: str) -> Optional[Dict[str, Any]]:
         "mem_avail": f'node_memory_MemAvailable_bytes{{instance=~"{node_id}.*"}}',
         
         # Scoped GPU Details
-        "gpu_util": f'nvidia_gpu_duty_cycle{{instance=~"{node_id}.*"}}',
-        "gpu_mem_used": f'nvidia_gpu_memory_used_bytes{{instance=~"{node_id}.*"}}',
-        "gpu_mem_total": f'nvidia_gpu_memory_total_bytes{{instance=~"{node_id}.*"}}',
-        "gpu_temp": f'nvidia_gpu_temperature_celsius{{instance=~"{node_id}.*"}}',
-        "gpu_power": f'nvidia_gpu_power_draw_watts{{instance=~"{node_id}.*"}}',
-        "gpu_info": f'nvidia_gpu_name{{instance=~"{node_id}.*"}}'
+        "gpu_util": f'nvidia_smi_utilization_gpu_ratio{{instance=~"{node_id}.*"}}',
+        "gpu_mem_used": f'nvidia_smi_memory_used_bytes{{instance=~"{node_id}.*"}}',
+        "gpu_mem_total": f'nvidia_smi_memory_total_bytes{{instance=~"{node_id}.*"}}',
+        "gpu_temp": f'nvidia_smi_temperature_gpu{{instance=~"{node_id}.*"}}',
+        "gpu_power": f'nvidia_smi_power_draw_watts{{instance=~"{node_id}.*"}}',
+        "gpu_info": f'nvidia_smi_gpu_info{{instance=~"{node_id}.*"}}'
     }
 
     async with httpx.AsyncClient() as client:
@@ -125,15 +126,14 @@ async def get_node_details(node_id: str) -> Optional[Dict[str, Any]]:
         (up_data, uptime_data, cpu_data, cpu_cores, mem_total, mem_avail,
          gpu_util, gpu_mem_used, gpu_mem_total, gpu_temp, gpu_power, gpu_info) = results
 
-    # If even basic status isn't reporting, the node might be entirely down
-    is_up = any(int(item["value"][1]) == 1 for item in up_data if "node_exporter" in item["metric"].get("job", ""))
+    is_up = any(int(item["value"][1]) == 1 for item in up_data if "node" in item["metric"].get("job", ""))
 
     node_details = {
         "id": node_id,
         "name": f"worker-{node_id.split('.')[-1]}",
         "status": "Online" if is_up else "Offline",
         "uptime": format_uptime(float(uptime_data[0]["value"][1])) if uptime_data else "0d 0h 0m",
-        "cpuModel": "AMD EPYC or Intel Xeon", # Static or configured depending on hardware inventory
+        "cpuModel": "AMD EPYC or Intel Xeon",
         "cpuCores": int(cpu_cores[0]["value"][1]) if cpu_cores else 0,
         "cpuUsage": round(float(cpu_data[0]["value"][1]), 1) if cpu_data else 0,
         "memoryTotal": round(float(mem_total[0]["value"][1]) / (1024**3)) if mem_total else 0,
@@ -152,21 +152,31 @@ async def get_node_details(node_id: str) -> Optional[Dict[str, Any]]:
         uuid = item["metric"].get("uuid", "")
         gpus_map[uuid] = {
             "id": uuid[-8:],
-            "model": item["metric"].get("name", "NVIDIA GPU"),
+            "model": item["metric"].get("name", "Quadro P5000"),
             "utilization": 0, "memoryUsed": 0, "memoryTotal": 0, "temperature": 0, "powerDraw": 0
         }
 
-    def fill_gpu(dataset, target_key, divisor=1):
+    def fill_gpu(dataset, target_key, divisor=1, is_ratio=False):
         for item in dataset:
             uuid = item["metric"].get("uuid", "")
             if uuid in gpus_map:
-                gpus_map[uuid][target_key] = round(float(item["value"][1]) / divisor)
+                val = float(item["value"][1])
+                if is_ratio and val <= 1.0: val = val * 100
+                gpus_map[uuid][target_key] = round(val / divisor)
 
-    fill_gpu(gpu_util, "utilization")
+    # Fill up telemetry datasets
+    fill_gpu(gpu_util, "utilization", is_ratio=True)
     fill_gpu(gpu_mem_used, "memoryUsed", 1024**3)
     fill_gpu(gpu_mem_total, "memoryTotal", 1024**3)
     fill_gpu(gpu_temp, "temperature")
     fill_gpu(gpu_power, "powerDraw")
+
+    if gpu_info:
+        for item in gpu_info:
+            metric = item.get("metric", {})
+            uuid = metric.get("uuid", "")
+            if uuid in gpus_map:
+                gpus_map[uuid]["model"] = metric.get("name", gpus_map[uuid]["model"])
 
     gpu_list = list(gpus_map.values())
     gpu_list.sort(key=lambda x: x["id"])
