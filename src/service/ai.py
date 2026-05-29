@@ -97,10 +97,10 @@ async def get_user_history_adapter(user_name: str) -> List[Dict[str, Any]]:
             })
         return old_format_list
 
-
 async def get_conversation_history_adapter(convo_id: str, user_name: str) -> Dict[str, Any]:
     """
     Fetches specific session messages and filters out phantom/empty thoughts blocks.
+    Only keeps the last AI response if consecutive AI responses are found.
     """
     async with httpx.AsyncClient() as client:
         response = await client.get(f"{AI_CLUSTER_URL}/api/v1/history/{user_name}/{convo_id}")
@@ -109,21 +109,29 @@ async def get_conversation_history_adapter(convo_id: str, user_name: str) -> Dic
 
         messages = data.get("messages", [])
         
-        dialogues = []
+        # 1. Gather all valid, sanitized messages into a temporary list first
+        raw_dialogues = []
         for msg in messages:
-            # 1. Clean out the raw leaked tokens from historical logs
             cleaned_content = sanitize_llm_response(msg.get("content", ""))
             
-            # 2. FIX EMPTY BUBBLES: If the block is empty after scrubbing, 
-            # skip it entirely so the UI doesn't render a phantom bubble
             if not cleaned_content:
                 continue
 
-            dialogues.append({
+            raw_dialogues.append({
                 "sent_by": "user" if msg["role"] == "user" else "ai",
                 "content": cleaned_content,
                 "timestamp": msg["timestamp"]
             })
+
+        # 2. Filter Consecutive AI Responses: Keep Only the Last One
+        dialogues = []
+        for i, current_msg in enumerate(raw_dialogues):
+            if current_msg["sent_by"] == "ai":
+                # If the NEXT message exists and is ALSO from the AI, skip this intermediate one
+                if i + 1 < len(raw_dialogues) and raw_dialogues[i + 1]["sent_by"] == "ai":
+                    continue
+            
+            dialogues.append(current_msg)
 
         convo_title = dialogues[0]["content"][:60] + "..." if dialogues else "Conversation"
 
