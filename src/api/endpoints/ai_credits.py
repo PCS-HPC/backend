@@ -11,7 +11,7 @@ def verify_token(authorization: Annotated[str | None, Header()] = None):
     if not authorization or authorization != f"Bearer {MCP_TOKEN}":
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-@router.get("/balance")
+@router.post("/balance")
 async def get_balance_endpoint(
     request: Request,
     user_id: str = Query(...),
@@ -19,7 +19,7 @@ async def get_balance_endpoint(
 ):
     return get_balance(request.app.db, user_id)
 
-@router.get("/charge")
+@router.post("/charge")
 async def charge_credits_endpoint(
     request: Request,
     user_id: str = Query(...),
@@ -29,7 +29,7 @@ async def charge_credits_endpoint(
 ):
     return charge_credits(request.app.db, user_id, amount, job_id)
 
-@router.get("/refund")
+@router.post("/refund")
 async def refund_credits_endpoint(
     request: Request,
     user_id: str = Query(...),
