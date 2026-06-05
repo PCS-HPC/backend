@@ -97,7 +97,7 @@ async def submit(
         amount=job_cost,
         old_balance=old_balance,
         new_balance=new_balance,
-        job_id=str(job_id)
+        job_id=job_id
     )
 
     return SubmitResponse(
