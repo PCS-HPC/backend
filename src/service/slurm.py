@@ -126,7 +126,9 @@ def _normalize_row(row: dict, db) -> dict:
 
     job_id = row["JobID"]
     # job_id is in integers because fuck you, thats why
-    slurm_job = db["slurm_jobs"].find_one({"jobId": int(job_id)}, {"amount": 1})
+    slurm_job = db["slurm_jobs"].find_one({
+        "jobId": { $in: [ str(job_id), int(job_id) ]}
+    }, {"amount": 1})
     credits = slurm_job["amount"] if slurm_job else None
 
     return {
