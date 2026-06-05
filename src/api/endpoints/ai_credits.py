@@ -11,7 +11,7 @@ router = APIRouter()
 class TransactionRequest(BaseModel):
     user_id: str
     amount: float
-    job_id: str
+    job_id: int
 
 def verify_token(authorization: Annotated[str | None, Header()] = None):
     if not authorization or authorization != f"Bearer {MCP_TOKEN}":
