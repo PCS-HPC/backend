@@ -28,7 +28,7 @@ def _record_transaction(
     db: Database,
     *,
     adminUserId: str | None,
-    adminName: str,
+    adminUsername: str,
     user: dict,
     operation: Literal["deduct", "add"],
     amount: float,
@@ -41,7 +41,7 @@ def _record_transaction(
         "targetUserId":      user["_id"],
         "targetUsername":    user.get("username"),
         "adminUserId": adminUserId,
-        "adminUsername": adminName,
+        "adminUsername": adminUsername,
         "operation":         operation,
         "amount":            amount,
         "oldCreditBalance":  old_balance,
@@ -95,6 +95,7 @@ def charge_credits(db: Database, username: str, amount: float, job_id: str) -> d
         )
         _record_transaction(
             db,
+            adminUserId="ai",
             adminUsername="ai",
             user=user,
             operation="charge",
@@ -110,7 +111,7 @@ def charge_credits(db: Database, username: str, amount: float, job_id: str) -> d
         )
 
     return {
-        "user_id":  user_id,
+        "user_id":  username,
         "job_id":   job_id,
         "amount":   amount,
         "balance":  new_balance,
@@ -138,6 +139,7 @@ def refund_credits(db: Database, username: str, amount: float, job_id: str) -> d
         )
         _record_transaction(
             db,
+            adminUserId="ai",
             adminUsername="ai",
             user=user,
             operation="refund",
@@ -153,7 +155,7 @@ def refund_credits(db: Database, username: str, amount: float, job_id: str) -> d
         )
 
     return {
-        "user_id":  user_id,
+        "user_id":  username,
         "job_id":   job_id,
         "amount":   amount,
         "balance":  new_balance,
