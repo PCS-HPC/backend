@@ -11,7 +11,7 @@ def verify_token(authorization: Annotated[str | None, Header()] = None):
     if not authorization or authorization != f"Bearer {MCP_TOKEN}":
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-@router.post("/balance")
+@router.get("/balance")
 async def get_balance_endpoint(
     request: Request,
     user_id: str = Query(...),
