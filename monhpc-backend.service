@@ -1,0 +1,21 @@
+# /etc/systemd/system/monhpc-backend.service
+[Unit]
+Description=MONHPC FastAPI Backend
+After=network.target munge.service slapd.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/path/to/backend-main
+ExecStart=/home/cluster-admin/.pyenv/shims/uvicorn src.main:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --log-config log_config.json \
+    --env-file .env
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
