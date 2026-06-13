@@ -1,21 +1,40 @@
-# /etc/systemd/system/monhpc-backend.service
+# MONHPC backend systemd unit
+#
+# Install (adjust paths below first):
+#   sudo cp monhpc-backend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now monhpc-backend
+#
+# Logs:
+#   journalctl -u monhpc-backend -f
+#
+# Runs as root so the API can `sudo -u <user> sbatch` and `chown` BeeGFS paths.
+# Set WorkingDirectory, EnvironmentFile, and ExecStart to match your deployment.
+
 [Unit]
 Description=MONHPC FastAPI Backend
-After=network.target munge.service slapd.service
+Documentation=file:///opt/monhpc/backend/README.md
+After=network-online.target mongod.service munge.service
+Wants=network-online.target mongod.service
+# If LDAP_ACTIVATED=true, also ensure slapd is up before this unit starts:
+# After=slapd.service
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/path/to/backend-main
-ExecStart=/home/cluster-admin/.pyenv/shims/uvicorn src.main:app \
+Group=root
+WorkingDirectory=/opt/monhpc/backend
+EnvironmentFile=/opt/monhpc/backend/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/monhpc/backend/.venv/bin/uvicorn src.main:app \
     --host 0.0.0.0 \
     --port 8000 \
-    --log-config log_config.json \
-    --env-file .env
-Restart=always
+    --log-config log_config.json
+Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
+SyslogIdentifier=monhpc-backend
 
 [Install]
 WantedBy=multi-user.target
