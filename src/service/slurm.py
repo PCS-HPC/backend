@@ -125,7 +125,6 @@ def _normalize_row(row: dict, db) -> dict:
     tres = _parse_tres(row.get("AllocTRES", ""))
 
     job_id = row["JobID"]
-    # job_id is in integers because fuck you, thats why
     slurm_job = db["slurm_jobs"].find_one({
         "jobId": { "$in": [ str(job_id), int(job_id) ]}
     }, {"amount": 1})
@@ -299,9 +298,6 @@ def get_job_output_paths(job_id: str) -> dict:
     
     We get:
     /mnt/beegfs/test/hostname_182.out
-    
-    Which is SO much more better than whatever the fuck the above one is
-    but --json returns EVERYTHING, even stuff that we dont really give a shit about
     """
     result = subprocess.run(
         ["sacct", f"--jobs={job_id}", "--json"],

@@ -113,7 +113,6 @@ def create_user(user: UserCreate, request: Request):
                 )
         except LDAPEntryAlreadyExistsResult:
             print("Thats weird, maybe someone (hopefully admin) created the user already, just log and let it through")
-            print("oh shit we dont have a log file, hehe")
         except Exception as e:
             print(e)
             raise HTTPException(

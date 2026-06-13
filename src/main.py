@@ -81,7 +81,7 @@ async def lifespan(app: FastAPI):
         app.ldap.unbind()
 
 
-origins = ['*'] # fuck you
+origins = ['*']
 app = FastAPI(lifespan=lifespan)
 
 # Observability
