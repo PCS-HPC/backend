@@ -4,6 +4,7 @@ from pydantic import BaseModel, EmailStr
 from ldap3.core.exceptions import LDAPEntryAlreadyExistsResult
 from ...service import ldap
 import os
+import pwd
 
 LDAP_ACTIVATED = os.getenv("LDAP_ACTIVATED") == 'true'
 
@@ -63,11 +64,23 @@ def create_user(user: UserCreate, request: Request):
     db = request.app.db
 
     parsed_email = parse_monash_email(user.email)
+    username = parsed_email["username"]
+    
+    # System Account Check (via NSS / pwd lookup)
+    try:
+        pwd.getpwnam(username)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username exists as a system account. Please contact an administrator.",
+        )
+    except KeyError:
+        # Username does not exist as a system account, proceed
+        pass
 
     existing_user = db["users"].find_one({
-        "email": parsed_email["email"],
-    })
-
+            "email": parsed_email["email"],
+        })
+    
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
